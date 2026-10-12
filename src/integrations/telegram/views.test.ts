@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { analyzeText } from '../../domain/text.ts';
 import type { PostView } from '../../services/queue-service.ts';
-import { escapeHtml, formatLocalTime, previewView, queueView, type ViewContext } from './views.ts';
+import {
+  escapeHtml,
+  eventView,
+  formatLocalTime,
+  previewView,
+  queueView,
+  type ViewContext,
+} from './views.ts';
 
 const CONTEXT: ViewContext = {
   timezone: 'Africa/Abidjan',
@@ -84,5 +91,57 @@ describe('views', () => {
     expect(view.text).toContain('“First line”');
     expect(view.text).toContain('…and 2 more.');
     expect(view.text).toContain('paused');
+  });
+});
+
+describe('publication event views', () => {
+  const eventPost = { publicId: 'P7K2QX', version: 3, text: 'Hello <X>' };
+  const buttons = (view: ReturnType<typeof eventView>) =>
+    view.keyboard?.inline_keyboard
+      .flat()
+      .map((button) => ('callback_data' in button ? button.callback_data : '')) ?? [];
+
+  it('links to a published post', () => {
+    const view = eventView(
+      { type: 'published', post: eventPost, xPostId: '1844', dryRun: false },
+      CONTEXT,
+    );
+    expect(view.text).toContain('Published P7K2QX on X');
+    expect(view.text).toContain('https://x.com/i/status/1844');
+    expect(view.text).toContain('Hello &lt;X&gt;');
+  });
+
+  it('makes dry-run publications unmistakable', () => {
+    const view = eventView(
+      { type: 'published', post: eventPost, xPostId: null, dryRun: true },
+      CONTEXT,
+    );
+    expect(view.text).toContain('[DRY RUN]');
+    expect(view.text).toContain('Nothing was sent to X');
+  });
+
+  it('offers retry or cancel for a failure, with the shown version', () => {
+    const view = eventView(
+      { type: 'publication_failed', post: eventPost, reason: 'Invalid.' },
+      CONTEXT,
+    );
+    expect(buttons(view)).toEqual(['r:P7K2QX:3', 'c:P7K2QX:3']);
+  });
+
+  it('asks the user to decide when an uncertain post was not found', () => {
+    const view = eventView(
+      { type: 'publication_not_found', post: eventPost, reason: null, rescheduledAt: null },
+      CONTEXT,
+    );
+    expect(buttons(view)).toEqual(['r:P7K2QX:3', 'm:P7K2QX:3', 'c:P7K2QX:3']);
+  });
+
+  it('promises no automatic resend while a publication is uncertain', () => {
+    const view = eventView(
+      { type: 'publication_uncertain', post: eventPost, reason: 'Timeout.' },
+      CONTEXT,
+    );
+    expect(view.text).toContain('Nothing will be re-sent automatically');
+    expect(buttons(view)).toEqual([]);
   });
 });

@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { QueueService } from '../src/services/queue-service.ts';
+import { duePersonalPost, postState } from './helpers/db.ts';
 import { createTelegramHarness, STRANGER_ID, type TelegramHarness } from './helpers/telegram.ts';
 
 const harnesses: TelegramHarness[] = [];
@@ -230,5 +231,54 @@ describe('reliability', () => {
     const bot = harness({ queue: failingQueue });
     await bot.send('Hello');
     expect(String(bot.lastReply().payload.text)).toContain('Something went wrong');
+  });
+});
+
+describe('publication decisions from alerts', () => {
+  async function failedPost(bot: TelegramHarness, outcome: 'failed' | 'uncertain') {
+    const post = duePersonalPost(bot, 'Needs a decision');
+    bot.x.script(
+      outcome === 'failed'
+        ? { kind: 'rejected', retryable: false, code: 'http_400', message: 'Invalid.' }
+        : { kind: 'unknown', code: 'timeout', message: 'No answer.' },
+    );
+    await bot.publisher.publishNextDue();
+    return post.publicId;
+  }
+
+  it('[Publish again] reschedules a failed post, once', async () => {
+    const bot = harness();
+    const publicId = await failedPost(bot, 'failed');
+    await bot.click(`r:${publicId}:1`, 42);
+    expect(bot.callsTo('answerCallbackQuery')[0]?.payload.text).toMatch(/^Rescheduled for /);
+    expect(postState(bot, publicId).status).toBe('scheduled');
+    await bot.click(`r:${publicId}:1`, 42);
+    expect(bot.callsTo('answerCallbackQuery')[1]?.payload.text).toBe('This post is scheduled.');
+  });
+
+  it('[It is on X] resolves an uncertain post without sending it again', async () => {
+    const bot = harness();
+    const publicId = await failedPost(bot, 'uncertain');
+    await bot.click(`m:${publicId}:1`, 42);
+    expect(bot.callsTo('answerCallbackQuery')[0]?.payload.text).toBe('Marked as published');
+    expect(postState(bot, publicId).status).toBe('published');
+    expect(bot.x.created).toHaveLength(1);
+  });
+
+  it('[Cancel] drops a failed post', async () => {
+    const bot = harness();
+    const publicId = await failedPost(bot, 'failed');
+    await bot.click(`c:${publicId}:1`, 42);
+    expect(bot.callsTo('answerCallbackQuery')[0]?.payload.text).toBe('Cancelled');
+    expect(postState(bot, publicId).status).toBe('cancelled');
+  });
+
+  it('refuses outdated cards and other users', async () => {
+    const bot = harness();
+    const publicId = await failedPost(bot, 'failed');
+    await bot.click(`r:${publicId}:2`, 42);
+    expect(bot.callsTo('answerCallbackQuery')[0]?.payload.text).toBe('This card is outdated.');
+    await bot.click(`r:${publicId}:1`, 42, STRANGER_ID);
+    expect(postState(bot, publicId).status).toBe('failed');
   });
 });

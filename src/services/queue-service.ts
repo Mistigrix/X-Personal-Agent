@@ -4,12 +4,12 @@
  * never modified.
  */
 import type { AppDatabase, DbExecutor } from '../db/client.ts';
+import { findOpenAttempt, updateAttempt } from '../db/repositories/attempts.ts';
 import {
   countByStatuses,
   findByPublicId,
   insertPostWithFirstVersion,
   listByStatuses,
-  type PostRecord,
   publicIdExists,
   setCardMessage,
   updatePost,
@@ -17,26 +17,18 @@ import {
 import {
   assertTransition,
   CANCELLABLE_STATUSES,
-  type PostSource,
   type PostStatus,
   QUEUE_STATUSES,
 } from '../domain/post.ts';
+import { RESOLVED_BY_USER } from '../domain/publication.ts';
 import type { Slot } from '../domain/scheduling.ts';
 import { analyzeText, contentHash, type TextAnalysis, type TextRules } from '../domain/text.ts';
 import type { Clock } from '../shared/clock.ts';
 import { generatePublicId } from '../shared/ids.ts';
+import { type PostView, toPostView } from './post-view.ts';
 import type { SchedulerService } from './scheduler-service.ts';
 
-export interface PostView {
-  publicId: string;
-  source: PostSource;
-  status: PostStatus;
-  version: number;
-  text: string;
-  weightedLength: number;
-  scheduledAt: Date | null;
-  createdAt: Date;
-}
+export type { PostView } from './post-view.ts';
 
 export type SubmitResult =
   | { kind: 'invalid'; analysis: TextAnalysis }
@@ -101,7 +93,7 @@ export function createQueueService(deps: {
   function reload(executor: DbExecutor, publicId: string): PostView {
     const record = findByPublicId(executor, publicId);
     if (!record) throw new Error(`Post ${publicId} disappeared during an update`);
-    return toView(record);
+    return toPostView(record);
   }
 
   return {
@@ -131,7 +123,7 @@ export function createQueueService(deps: {
             status: 'pending_confirmation',
           });
           const projectedSlot = scheduler.nextFreeSlot(tx, now);
-          return { kind: 'needs_confirmation', post: toView(record), analysis, projectedSlot };
+          return { kind: 'needs_confirmation', post: toPostView(record), analysis, projectedSlot };
         }
 
         const slot = scheduler.nextFreeSlot(tx, now);
@@ -142,7 +134,7 @@ export function createQueueService(deps: {
           scheduledAt: slot.at,
           slotKey: slot.key,
         });
-        return { kind: 'scheduled', post: toView(record), analysis, slot };
+        return { kind: 'scheduled', post: toPostView(record), analysis, slot };
       }, immediate);
     },
 
@@ -151,14 +143,15 @@ export function createQueueService(deps: {
         const record = findByPublicId(tx, publicId);
         if (!record) return { kind: 'not_found' };
         const { post } = record;
-        if (post.status === 'scheduled') return { kind: 'already_queued', post: toView(record) };
+        if (post.status === 'scheduled')
+          return { kind: 'already_queued', post: toPostView(record) };
         if (post.status !== 'pending_confirmation')
-          return { kind: 'not_pending', post: toView(record) };
-        if (post.currentVersion !== version) return { kind: 'outdated', post: toView(record) };
+          return { kind: 'not_pending', post: toPostView(record) };
+        if (post.currentVersion !== version) return { kind: 'outdated', post: toPostView(record) };
 
         const now = clock.now();
         const slot = scheduler.nextFreeSlot(tx, now);
-        if (!slot) return { kind: 'queue_full', post: toView(record) };
+        if (!slot) return { kind: 'queue_full', post: toPostView(record) };
 
         assertTransition(post.source, post.status, 'scheduled');
         updatePost(tx, post.id, post.status, {
@@ -176,17 +169,29 @@ export function createQueueService(deps: {
         const record = findByPublicId(tx, publicId);
         if (!record) return { kind: 'not_found' };
         const { post } = record;
-        if (post.status === 'cancelled') return { kind: 'already_cancelled', post: toView(record) };
+        if (post.status === 'cancelled')
+          return { kind: 'already_cancelled', post: toPostView(record) };
         if (!(CANCELLABLE_STATUSES as readonly PostStatus[]).includes(post.status)) {
-          return { kind: 'not_cancellable', post: toView(record) };
+          return { kind: 'not_cancellable', post: toPostView(record) };
         }
         if (expectedVersion !== undefined && post.currentVersion !== expectedVersion) {
-          return { kind: 'outdated', post: toView(record) };
+          return { kind: 'outdated', post: toPostView(record) };
         }
 
+        const now = clock.now();
         assertTransition(post.source, post.status, 'cancelled');
+        // An uncertain post still has an open attempt: the user's decision closes it.
+        const open = findOpenAttempt(tx, post.id);
+        if (open) {
+          updateAttempt(tx, open.id, open.status, {
+            status: 'reconciled_not_found',
+            finishedAt: open.finishedAt ?? now,
+            errorCode: RESOLVED_BY_USER,
+            notifiedAt: now,
+          });
+        }
         // The partial unique index ignores cancelled posts, so the slot is freed.
-        updatePost(tx, post.id, post.status, { status: 'cancelled', updatedAt: clock.now() });
+        updatePost(tx, post.id, post.status, { status: 'cancelled', updatedAt: now });
         return { kind: 'cancelled', post: reload(tx, publicId) };
       }, immediate);
     },
@@ -194,14 +199,14 @@ export function createQueueService(deps: {
     listQueue(limit) {
       const counts = countByStatuses(db, QUEUE_STATUSES);
       const total = Object.values(counts).reduce((sum, value) => sum + value, 0);
-      return { posts: listByStatuses(db, QUEUE_STATUSES, limit).map(toView), total };
+      return { posts: listByStatuses(db, QUEUE_STATUSES, limit).map(toPostView), total };
     },
 
     summary() {
       const [next] = listByStatuses(db, ['scheduled'], 1);
       return {
         counts: countByStatuses(db, [...QUEUE_STATUSES, 'draft']),
-        nextScheduled: next ? toView(next) : null,
+        nextScheduled: next ? toPostView(next) : null,
       };
     },
 
@@ -209,18 +214,5 @@ export function createQueueService(deps: {
       const record = findByPublicId(db, publicId);
       if (record) setCardMessage(db, record.post.id, card, clock.now());
     },
-  };
-}
-
-function toView({ post, version }: PostRecord): PostView {
-  return {
-    publicId: post.publicId,
-    source: post.source,
-    status: post.status,
-    version: post.currentVersion,
-    text: version.text,
-    weightedLength: version.weightedLength,
-    scheduledAt: post.scheduledAt,
-    createdAt: post.createdAt,
   };
 }

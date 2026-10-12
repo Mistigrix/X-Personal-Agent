@@ -7,7 +7,7 @@ A self-hosted agent that keeps your X (Twitter) account active without making it
 
 It runs as a single Node.js process with a SQLite database. You configure it entirely through local files, without modifying source code.
 
-> **Status: early development.** Milestones 1–2 of 6 are done: configuration, database, and the Telegram bot with a persistent personal-post queue and publication slots. **Publishing to X is not implemented yet**: queued posts stay in the queue. See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the roadmap.
+> **Status: early development.** Milestones 1–3 of 6 are done: configuration, the Telegram bot and personal-post queue, and publication to X with retries, uncertain-outcome reconciliation and a dry-run mode. AI-generated drafts are not implemented yet. See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the roadmap.
 
 ## Safety model
 
@@ -85,6 +85,56 @@ Tap **✅ Queue** to queue it or **🗑 Discard** to drop it. The text is stored
 
 To change a queued post, `/cancel` it and send the corrected text. Edits to messages already sent are not applied.
 
+**Publication:**
+- Every 30 seconds the agent publishes the next due post, if publication is not paused.
+- Posts that missed their time by more than `schedule.maxLatenessMinutes` (after a pause or downtime) move to the next free slots instead of going out in a burst.
+- You get a message for each outcome:
+
+| Outcome | What happens |
+|---|---|
+| ✅ Published | Includes a link to the post. In dry run, the message says nothing was sent. |
+| Temporary error (X unreachable, rate limit) | Retried automatically with increasing delays (`publishing.maxRetries`), silently. |
+| ❌ Failed (invalid text, credentials, credits) | Not retried. Buttons: **Publish again**, **Cancel**. |
+| ⚠️ Uncertain (timeout, X server error, interrupted shutdown) | Never resent automatically. The agent looks for the post on your timeline. If found, it confirms. If not, it asks you: **Publish again**, **It is on X**, **Cancel**. |
+
+## Publishing to X
+
+### Dry run first
+
+With `PUBLISH_MODE=dry-run` (the default), the full flow runs but nothing is sent to X: posts are marked as published and the notification is labelled **[DRY RUN]**.
+
+> ⚠️ A dry-run "publication" consumes the queued post: it will not be published again in live mode. Use a separate database for experiments (for example `DATABASE_PATH=./local/data/dry-run.db`), and queue your real posts once you are in live mode.
+
+`pnpm schedule:preview [days]` lists the upcoming publication times and which post takes each one.
+
+### X developer setup
+
+1. In the [X Developer Console](https://developer.x.com), create a project and an app.
+2. In the app's user authentication settings, set the permissions to **Read and write**.
+3. In **Keys and tokens**, copy the API key and secret, then generate the access token and secret **for your own account**. Generate them **after** setting Read and write: tokens created before keep read-only access.
+4. Buy credits and set a **spending cap** (see [X API costs](#x-api-costs)).
+5. Put the four values in `.env` (`X_API_KEY`, `X_API_SECRET`, `X_ACCESS_TOKEN`, `X_ACCESS_TOKEN_SECRET`).
+6. Run `pnpm x:verify`. It makes one paid request (`GET /2/users/me`, about $0.01) and prints the account it authenticated as.
+
+### Going live
+
+1. Stop the agent.
+2. Set `PUBLISH_MODE=live` in `.env`. Point `DATABASE_PATH` at the database you want to use in production.
+3. Start the agent. It checks the credentials at startup and refuses to start if X rejects them.
+4. `/status` should show **Mode: live**. Send a test post, queue it, and check it on your profile once the notification arrives.
+
+### Reliability and its limits
+
+The X API has no idempotency key. If a request times out, the post may or may not have been created, and resending blindly could publish it twice. The agent therefore:
+
+- records each attempt in the database **before** sending it, and never holds a database transaction open during the network call;
+- retries only when the request certainly did not reach X (connection refused, DNS failure, rate limit);
+- marks every ambiguous outcome as **uncertain** and never resends it automatically. It reads your recent posts (an owned read, $0.001 per post) to resolve it, then asks you if the post is not found. Automatic retry after "not found" can be enabled with `publishing.reconcile.autoRetryIfNotFound`;
+- after a crash, recovers interrupted attempts as uncertain instead of resending them;
+- runs only one instance per database: a lease renewed every 30 seconds, plus Telegram's own single-poller rule.
+
+The guarantee is therefore **at most one automatic send per post version**, with a human decision for any outcome that cannot be confirmed. Exactly-once delivery is not possible with this API.
+
 ## Configuration
 
 | Layer | File (gitignored) | Committed template | Contains |
@@ -139,6 +189,8 @@ HTML comments (`<!-- ... -->`) in these files are guidance for you and are not s
 | `pnpm db:generate` | Generate a migration after changing `src/db/schema.ts` |
 | `pnpm check:secrets` | Scan committable files for private files and credentials |
 | `pnpm telegram:whoami` | Print the Telegram user ID of whoever messages the bot |
+| `pnpm schedule:preview [days]` | Show upcoming publication times and the posts assigned to them |
+| `pnpm x:verify` | Check the X credentials (one paid request, about $0.01) |
 
 ## Project structure
 
@@ -147,8 +199,9 @@ src/
   config/       environment, YAML config and profile loading + validation
   domain/       business rules, pure and without I/O: post states, slots, text analysis
   db/           Drizzle schema, SQLite client, repositories
-  services/     use cases: personal post queue, scheduler, notifications
-  integrations/ external systems (Telegram bot today; X and OpenAI later)
+  services/     use cases: queue, scheduler, publisher, reconciler, notifications, instance lease
+  jobs/         the 30-second ticker and the work done on each tick
+  integrations/ external systems: Telegram bot, X API (official SDK, dry-run client)
   shared/       logging, secret redaction, clock, IDs, process helpers
   main.ts       composition root
 drizzle/        generated SQL migrations

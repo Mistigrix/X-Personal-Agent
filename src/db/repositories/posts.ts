@@ -1,4 +1,4 @@
-import { and, asc, count, eq, gte, inArray, isNotNull, sql } from 'drizzle-orm';
+import { and, asc, count, eq, gte, inArray, isNotNull, lt, lte, sql } from 'drizzle-orm';
 import {
   type PostSource,
   type PostStatus,
@@ -101,6 +101,43 @@ export function listByStatuses(
     .all();
 }
 
+export function findById(db: DbExecutor, id: number): PostRecord | undefined {
+  return db
+    .select({ post: posts, version: postVersions })
+    .from(posts)
+    .innerJoin(postVersions, currentVersionJoin)
+    .where(eq(posts.id, id))
+    .get();
+}
+
+/** Scheduled posts due at `now`, earliest first. */
+export function listDueScheduled(db: DbExecutor, now: Date, limit: number): PostRecord[] {
+  return db
+    .select({ post: posts, version: postVersions })
+    .from(posts)
+    .innerJoin(postVersions, currentVersionJoin)
+    .where(and(eq(posts.status, 'scheduled'), lte(posts.scheduledAt, now)))
+    .orderBy(asc(posts.scheduledAt), asc(posts.id))
+    .limit(limit)
+    .all();
+}
+
+/** Scheduled posts whose time is before `before` (missed during a pause or downtime). */
+export function listOverdueScheduled(db: DbExecutor, before: Date): PostRow[] {
+  return db
+    .select()
+    .from(posts)
+    .where(and(eq(posts.status, 'scheduled'), lt(posts.scheduledAt, before)))
+    .orderBy(asc(posts.scheduledAt), asc(posts.id))
+    .all();
+}
+
+export function xPostIdExists(db: DbExecutor, xPostId: string): boolean {
+  return (
+    db.select({ id: posts.id }).from(posts).where(eq(posts.xPostId, xPostId)).get() !== undefined
+  );
+}
+
 export function countByStatuses(
   db: DbExecutor,
   statuses: readonly PostStatus[],
@@ -131,7 +168,18 @@ export function takenSlotKeys(db: DbExecutor, since: Date): Set<string> {
 }
 
 export type PostChanges = Partial<
-  Pick<PostRow, 'status' | 'scheduledAt' | 'slotKey' | 'lastError' | 'cardChatId' | 'cardMessageId'>
+  Pick<
+    PostRow,
+    | 'status'
+    | 'scheduledAt'
+    | 'slotKey'
+    | 'retryCount'
+    | 'lastError'
+    | 'xPostId'
+    | 'publishedAt'
+    | 'cardChatId'
+    | 'cardMessageId'
+  >
 > & { updatedAt: Date };
 
 /**

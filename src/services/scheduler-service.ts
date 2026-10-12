@@ -1,11 +1,23 @@
 import { randomBytes } from 'node:crypto';
 import type { AppDatabase, DbExecutor } from '../db/client.ts';
-import { takenSlotKeys } from '../db/repositories/posts.ts';
+import { listOverdueScheduled, takenSlotKeys, updatePost } from '../db/repositories/posts.ts';
 import { getSetting, setSetting } from '../db/repositories/settings.ts';
-import { findNextFreeSlot, type ScheduleRules, type Slot } from '../domain/scheduling.ts';
+import { assertTransition } from '../domain/post.ts';
+import {
+  findNextFreeSlot,
+  type ScheduleRules,
+  type Slot,
+  upcomingSlots,
+} from '../domain/scheduling.ts';
 import type { Clock } from '../shared/clock.ts';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+export interface RescheduledPost {
+  publicId: string;
+  from: Date | null;
+  to: Date;
+}
 
 export interface SchedulerService {
   /**
@@ -13,6 +25,14 @@ export interface SchedulerService {
    * that books the slot, so two posts cannot be given the same one.
    */
   nextFreeSlot(db: DbExecutor, after: Date): Slot | null;
+  /**
+   * Moves posts that missed their time by more than `maxLatenessMinutes` (pause,
+   * downtime) to the next free slots, in order, instead of publishing them late
+   * in a burst.
+   */
+  rescheduleOverdue(): RescheduledPost[];
+  /** Publication slots in the next `days` local days (taken or not). */
+  upcoming(days: number): Slot[];
   isPaused(): boolean;
   /** Pauses automatic publication. Returns false if it was already paused. */
   pause(): boolean;
@@ -23,6 +43,7 @@ export interface SchedulerService {
 export function createSchedulerService(deps: {
   db: AppDatabase;
   rules: ScheduleRules;
+  maxLatenessMinutes: number;
   clock: Clock;
 }): SchedulerService {
   const { db, rules, clock } = deps;
@@ -33,6 +54,13 @@ export function createSchedulerService(deps: {
     const salt = randomBytes(16).toString('hex');
     setSetting(executor, 'schedule_salt', salt, clock.now());
     return salt;
+  }
+
+  function nextFreeSlot(executor: DbExecutor, after: Date): Slot | null {
+    // Posts holding upcoming slots are scheduled after `after`; the margin also
+    // covers posts whose retry time moved past their original slot.
+    const taken = takenSlotKeys(executor, new Date(after.getTime() - DAY_MS));
+    return findNextFreeSlot(after, taken, rules, scheduleSalt(executor));
   }
 
   function setPaused(paused: boolean): boolean {
@@ -47,12 +75,38 @@ export function createSchedulerService(deps: {
   }
 
   return {
-    nextFreeSlot(executor, after) {
-      // Posts holding upcoming slots are scheduled after `after`; the margin also
-      // covers posts whose retry time moved past their original slot.
-      const taken = takenSlotKeys(executor, new Date(after.getTime() - DAY_MS));
-      return findNextFreeSlot(after, taken, rules, scheduleSalt(executor));
+    nextFreeSlot,
+
+    rescheduleOverdue() {
+      return db.transaction(
+        (tx) => {
+          const now = clock.now();
+          const overdue = listOverdueScheduled(
+            tx,
+            new Date(now.getTime() - deps.maxLatenessMinutes * 60_000),
+          );
+          const moves: RescheduledPost[] = [];
+          for (const post of overdue) {
+            const slot = nextFreeSlot(tx, now);
+            if (!slot) break;
+            assertTransition(post.source, 'scheduled', 'scheduled');
+            updatePost(tx, post.id, 'scheduled', {
+              scheduledAt: slot.at,
+              slotKey: slot.key,
+              updatedAt: now,
+            });
+            moves.push({ publicId: post.publicId, from: post.scheduledAt, to: slot.at });
+          }
+          return moves;
+        },
+        { behavior: 'immediate' },
+      );
     },
+
+    upcoming(days) {
+      return [...upcomingSlots(clock.now(), rules, scheduleSalt(db), days)];
+    },
+
     isPaused: () => getSetting(db, 'publication_paused') ?? false,
     pause: () => setPaused(true),
     resume: () => setPaused(false),

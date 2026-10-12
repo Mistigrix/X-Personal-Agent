@@ -8,7 +8,8 @@ import type { PostStatus } from '../../domain/post.ts';
 import type { PublishMode } from '../../domain/publication.ts';
 import type { Slot } from '../../domain/scheduling.ts';
 import type { TextAnalysis, TextError, TextWarning } from '../../domain/text.ts';
-import type { AgentEvent } from '../../services/notifier.ts';
+import type { AgentEvent, EventPost } from '../../services/notifier.ts';
+import type { MarkPublishedResult, RetryResult } from '../../services/publisher-service.ts';
 import type {
   CancelResult,
   ConfirmResult,
@@ -370,6 +371,29 @@ export function errorView(): View {
   };
 }
 
+function postLink(xPostId: string | null): string[] {
+  return xPostId ? [`https://x.com/i/status/${encodeURIComponent(xPostId)}`] : [];
+}
+
+function decisionKeyboard(post: EventPost, options: { markPublished: boolean }): InlineKeyboard {
+  const keyboard = new InlineKeyboard().text(
+    '🔁 Publish again',
+    encodeCallback({ action: 'retry', publicId: post.publicId, version: post.version }),
+  );
+  if (options.markPublished) {
+    keyboard.text(
+      '✅ It is on X',
+      encodeCallback({ action: 'markPublished', publicId: post.publicId, version: post.version }),
+    );
+  }
+  return keyboard
+    .row()
+    .text(
+      '🗑 Cancel',
+      encodeCallback({ action: 'cancel', publicId: post.publicId, version: post.version }),
+    );
+}
+
 export function eventView(event: AgentEvent, context: ViewContext): View {
   switch (event.type) {
     case 'started':
@@ -382,5 +406,134 @@ export function eventView(event: AgentEvent, context: ViewContext): View {
           `Posts in the queue: ${event.queued}`,
         ].join('\n'),
       };
+    case 'published':
+      return {
+        text: event.dryRun
+          ? [
+              `🧪 <b>[DRY RUN] ${event.post.publicId} would have been published now.</b> Nothing was sent to X.`,
+              quote(event.post.text),
+            ].join('\n')
+          : [
+              `✅ <b>Published ${event.post.publicId} on X.</b>`,
+              quote(event.post.text),
+              ...postLink(event.xPostId),
+            ].join('\n'),
+      };
+    case 'publication_failed':
+      return {
+        text: [
+          `❌ <b>${event.post.publicId} could not be published.</b>`,
+          escapeHtml(event.reason),
+          quote(event.post.text),
+        ].join('\n'),
+        keyboard: decisionKeyboard(event.post, { markPublished: false }),
+      };
+    case 'publication_uncertain':
+      return {
+        text: [
+          `⚠️ <b>Publication of ${event.post.publicId} is uncertain.</b>`,
+          escapeHtml(event.reason),
+          'It may or may not be on X. Nothing will be re-sent automatically: I am checking your timeline first.',
+          quote(event.post.text),
+        ].join('\n'),
+      };
+    case 'publication_confirmed':
+      return {
+        text: [
+          `✅ <b>Confirmed: ${event.post.publicId} is on X.</b>`,
+          ...postLink(event.xPostId),
+        ].join('\n'),
+      };
+    case 'publication_not_found':
+      return event.rescheduledAt
+        ? {
+            text: [
+              `⚠️ <b>${event.post.publicId} was not found on X</b> after an uncertain attempt.`,
+              `It was rescheduled automatically for ${formatLocalTime(event.rescheduledAt, context.timezone)}.`,
+              quote(event.post.text),
+            ].join('\n'),
+          }
+        : {
+            text: [
+              `⚠️ <b>${event.post.publicId} was not found on X</b> (or your timeline could not be checked${event.reason ? `: ${escapeHtml(event.reason)}` : ''}).`,
+              'Please check your profile, then decide:',
+              quote(event.post.text),
+            ].join('\n'),
+            keyboard: decisionKeyboard(event.post, { markPublished: true }),
+          };
+    case 'rescheduled':
+      return {
+        text: [
+          '🕒 <b>Posts that missed their time were moved:</b>',
+          ...event.moves.map(
+            (move) =>
+              `<code>${move.publicId}</code> → ${formatLocalTime(move.to, context.timezone)}`,
+          ),
+        ].join('\n'),
+      };
+  }
+}
+
+export function retryOutcome(
+  result: RetryResult,
+  context: ViewContext,
+): { toast: string; card: View | null } {
+  switch (result.kind) {
+    case 'rescheduled': {
+      const when = formatLocalTime(result.slot.at, context.timezone);
+      return {
+        toast: `Rescheduled for ${when}`,
+        card: {
+          text: `🔁 <b>${result.post.publicId} rescheduled</b> for ${when}.\n${quote(result.post.text)}`,
+        },
+      };
+    }
+    case 'not_retryable':
+      return { toast: `This post is ${STATUS_LABELS[result.post.status]}.`, card: null };
+    case 'outdated':
+      return { toast: 'This card is outdated.', card: null };
+    case 'queue_full':
+      return { toast: 'No free publication slot.', card: null };
+    case 'not_found':
+      return { toast: 'This post no longer exists.', card: null };
+  }
+}
+
+export function markPublishedOutcome(result: MarkPublishedResult): {
+  toast: string;
+  card: View | null;
+} {
+  switch (result.kind) {
+    case 'marked':
+      return {
+        toast: 'Marked as published',
+        card: {
+          text: `✅ <b>${result.post.publicId} marked as published.</b> It will not be sent again.`,
+        },
+      };
+    case 'not_uncertain':
+      return { toast: `This post is ${STATUS_LABELS[result.post.status]}.`, card: null };
+    case 'outdated':
+      return { toast: 'This card is outdated.', card: null };
+    case 'not_found':
+      return { toast: 'This post no longer exists.', card: null };
+  }
+}
+
+export function cancelOutcome(result: CancelResult): { toast: string; card: View | null } {
+  switch (result.kind) {
+    case 'cancelled':
+      return {
+        toast: 'Cancelled',
+        card: { text: `🗑 <b>${result.post.publicId} cancelled.</b> It will not be published.` },
+      };
+    case 'already_cancelled':
+      return { toast: 'Already cancelled', card: null };
+    case 'not_cancellable':
+      return { toast: `This post is ${STATUS_LABELS[result.post.status]}.`, card: null };
+    case 'outdated':
+      return { toast: 'This card is outdated.', card: null };
+    case 'not_found':
+      return { toast: 'This post no longer exists.', card: null };
   }
 }

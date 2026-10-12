@@ -9,7 +9,7 @@ Last updated: 2026-10-12
 | 0 — Repository inspection & technical plan | Done (defaults in §14 applied) |
 | 1 — Project foundations | Done, 2026-10-12 |
 | 2 — Telegram & personal post queue | Done, 2026-10-12 |
-| 3 — X API integration & scheduling | Not started |
+| 3 — X API integration & scheduling | Done, 2026-10-12 |
 | 4 — AI editorial engine | Not started |
 | 5 — Telegram approval workflow | Not started |
 | 6 — Production hardening & open-source release | Not started |
@@ -56,6 +56,34 @@ Last updated: 2026-10-12
   - Nothing is published yet, so `/pause` only records the state.
   - Overdue posts are not yet moved to new slots.
   - There is no single-instance lease yet. A second instance is only caught by Telegram's 409 conflict.
+
+**M3 (2026-10-12).**
+- **SDK spike:** I tested `@xdevplatform/xdk` 0.6.6 against a local fake server.
+  - Its `retry` option defaults to `true` but is not used in 0.6.6.
+  - HTTP errors come back as `ApiError` with status and headers.
+  - Network, timeout and parse failures come back as status 0, with the original error in `data`. That's enough to tell "never sent" (ECONNREFUSED, ENOTFOUND, connect timeout, TLS) from "unknown" (timeout, reset, unreadable 201).
+  - The OAuth 1.0a signature correctly leaves the JSON body out.
+  - **Decision:** keep the official SDK, pinned to exactly 0.6.6, with `retry: false`, plus `tests/x-client.contract.test.ts` against a local server so an SDK upgrade can't silently change behaviour.
+- **Delivered:**
+  - `XClient` port with a live (SDK) adapter and a dry-run adapter.
+  - Error classifier (5xx, 408, timeouts and duplicate content are all treated as **unknown**).
+  - `PublicationPolicy`: the single publishability rule, including the AI approval invariant.
+  - Publisher (claim → send → record, at most one post per tick), reconciler (owned timeline reads, matching normalized text), outcome notifications (built from the attempts table, redelivered when they fail), overdue rescheduling, instance lease.
+  - 30-second ticker, Telegram alert buttons (Publish again / It is on X / Cancel), `schedule:preview`, `x:verify`.
+- **Verification:**
+  - 318 tests pass, including 15 contract tests against a local HTTP server, and the "two concurrent ticks claim once", crash-recovery and AI-approval invariant tests.
+  - An end-to-end dry-run smoke test with the real process and bot (on a scratch database) worked: claimed, simulated, recorded, notification delivered, lease released.
+  - **Not yet verified against the real X API** (that needs your credentials).
+- **Decisions made during M3:**
+  - **Integrity blocks:** a post that fails a check before sending (stale version, altered text, open attempt) leaves the schedule. An AI post with an approval problem goes back to `draft`; anything else becomes `failed`. This needed the new `scheduled → failed` transition.
+  - **User decisions on uncertain posts:** retry, mark as published, or cancel. Each closes the open attempt with `error_code = resolved_by_user`. Uncertain posts can now be cancelled.
+  - **X account cache:** stored with a non-reversible fingerprint of the credentials, and checked at live startup. That costs one paid request per credentials change.
+  - **Lease:** expires after 90 s. At startup the agent waits for a stale lease to expire (normal after a crash) before giving up.
+  - **Dry run:** a dry-run publication consumes the post, which is documented. An interrupted dry-run attempt is rescheduled silently, since nothing was ever sent.
+- **Known limitations:**
+  - Reconciliation of Premium long posts relies on a prefix match of the possibly truncated `text`.
+  - "Moved overdue posts" notifications are best effort (not stored).
+  - Live publication still needs your credentials and an explicitly approved test post.
 
 ---
 

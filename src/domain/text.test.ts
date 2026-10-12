@@ -6,8 +6,8 @@ const RULES: TextRules = { maxWeightedLength: 280, urlPolicy: 'confirm' };
 describe('weightedLength (X counting rules)', () => {
   it.each([
     ['plain Latin text', 'hello', 5],
-    ['accented text, composed', 'café', 4],
-    ['accented text, decomposed (NFC-normalized)', 'café', 4],
+    ['accented text, composed', 'caf\u00e9', 4],
+    ['accented text, decomposed (NFC-normalized)', 'cafe\u0301', 4],
     ['emoji with skin tone', '👍🏽', 2],
     ['ZWJ family emoji', '👨‍👩‍👧‍👦', 2],
     ['CJK characters', '日本語', 6],
@@ -85,6 +85,6 @@ describe('contentHash', () => {
 
   it('distinguishes texts X would count identically', () => {
     expect(contentHash('hello ')).not.toBe(contentHash('hello'));
-    expect(contentHash('café')).not.toBe(contentHash('café'));
+    expect(contentHash('caf\u00e9')).not.toBe(contentHash('cafe\u0301'));
   });
 });

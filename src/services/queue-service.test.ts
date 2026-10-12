@@ -38,7 +38,7 @@ describe('submitting personal posts', () => {
       '  leading and trailing spaces  ',
       'line one\nline two\n\nline four\n',
       'tab\tseparated',
-      'café (decomposed) vs café',
+      'cafe\u0301 (decomposed) vs caf\u00e9',
       'emoji 👨‍👩‍👧‍👦 and 👍🏽',
       'RTL mark ‏ and zero-width joiner ‍',
       'HTML <b>stays</b> & raw',

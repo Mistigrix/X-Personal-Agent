@@ -16,18 +16,25 @@ export function createTelegramNotifier(deps: {
   return {
     async notify(event) {
       const view = eventView(event, deps.view);
-      await Promise.all(
+      const results = await Promise.all(
         deps.recipients.map(async (chatId) => {
           try {
-            await deps.api.sendMessage(chatId, view.text, { parse_mode: 'HTML' });
+            await deps.api.sendMessage(chatId, view.text, {
+              parse_mode: 'HTML',
+              link_preview_options: { is_disabled: true },
+              ...(view.keyboard ? { reply_markup: view.keyboard } : {}),
+            });
+            return true;
           } catch (error) {
             deps.logger.warn(
               { err: error, chatId, event: event.type },
               'Telegram notification failed',
             );
+            return false;
           }
         }),
       );
+      return results.some(Boolean);
     },
   };
 }

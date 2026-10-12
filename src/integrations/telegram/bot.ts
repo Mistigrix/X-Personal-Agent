@@ -4,14 +4,16 @@
  */
 import { Bot, type Context, GrammyError } from 'grammy';
 import type { Message, UserFromGetMe } from 'grammy/types';
+import type { PublisherService } from '../../services/publisher-service.ts';
 import type { QueueService } from '../../services/queue-service.ts';
 import type { SchedulerService } from '../../services/scheduler-service.ts';
 import { parsePublicId } from '../../shared/ids.ts';
 import type { Logger } from '../../shared/logger.ts';
 import { authorize } from './auth.ts';
-import { decodeCallback } from './callbacks.ts';
+import { type CallbackPayload, decodeCallback } from './callbacks.ts';
 import {
   addHelpView,
+  cancelOutcome,
   cancelResultView,
   cancelUsageView,
   confirmOutcome,
@@ -20,12 +22,14 @@ import {
   errorView,
   helpView,
   invalidPostView,
+  markPublishedOutcome,
   pauseView,
   previewView,
   queuedView,
   queueFullView,
   queueView,
   resumeView,
+  retryOutcome,
   statusView,
   unknownCommandView,
   unsupportedMessageView,
@@ -39,6 +43,7 @@ export interface BotDependencies {
   allowedUserIds: readonly number[];
   queue: QueueService;
   scheduler: SchedulerService;
+  publisher: Pick<PublisherService, 'retry' | 'markPublished'>;
   view: ViewContext;
   logger: Logger;
   /** Skips the getMe call (tests). */
@@ -62,7 +67,7 @@ export const ALLOWED_UPDATES = ['message', 'edited_message', 'callback_query'] a
 const QUEUE_PAGE_SIZE = 20;
 
 export function createBot(deps: BotDependencies): Bot {
-  const { queue, scheduler, view: context, logger } = deps;
+  const { queue, scheduler, publisher, view: context, logger } = deps;
   const bot = new Bot(deps.token, deps.botInfo ? { botInfo: deps.botInfo } : {});
 
   bot.use(authorize(deps.allowedUserIds, logger));
@@ -139,20 +144,28 @@ export function createBot(deps: BotDependencies): Bot {
       return;
     }
 
-    const outcome =
-      payload.action === 'queue'
-        ? confirmOutcome(
-            queue.confirm(payload.publicId, payload.version),
-            context,
-            scheduler.isPaused(),
-          )
-        : discardOutcome(queue.cancel(payload.publicId, payload.version));
+    const outcome = handleAction(payload);
     logger.info({ postId: payload.publicId, action: payload.action }, 'Card button handled');
 
     await ctx.answerCallbackQuery({ text: outcome.toast });
     if (outcome.card) await editCard(ctx, outcome.card);
   });
   bot.on('callback_query', (ctx) => ctx.answerCallbackQuery());
+
+  function handleAction({ action, publicId, version }: CallbackPayload) {
+    switch (action) {
+      case 'queue':
+        return confirmOutcome(queue.confirm(publicId, version), context, scheduler.isPaused());
+      case 'discard':
+        return discardOutcome(queue.cancel(publicId, version));
+      case 'retry':
+        return retryOutcome(publisher.retry(publicId, version), context);
+      case 'markPublished':
+        return markPublishedOutcome(publisher.markPublished(publicId, version));
+      case 'cancel':
+        return cancelOutcome(queue.cancel(publicId, version));
+    }
+  }
 
   bot.catch(async (error) => {
     logger.error(

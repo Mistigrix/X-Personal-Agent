@@ -9,6 +9,10 @@ const SETTING_SCHEMAS = {
   publication_paused: z.boolean(),
   /** Per-install random salt that varies publication times inside windows. */
   schedule_salt: z.string().min(16),
+  /** Running instance holding the right to publish (renewed by its heartbeat). */
+  instance_lease: z.object({ owner: z.string(), expiresAt: z.number() }),
+  /** The authenticated X account, cached to avoid paid lookups. Tied to a credentials fingerprint. */
+  x_account: z.object({ id: z.string().min(1), username: z.string(), fingerprint: z.string() }),
 } as const;
 
 export type SettingKey = keyof typeof SETTING_SCHEMAS;
@@ -35,4 +39,8 @@ export function setSetting<K extends SettingKey>(
     .values({ key, value, updatedAt: now })
     .onConflictDoUpdate({ target: settings.key, set: { value, updatedAt: now } })
     .run();
+}
+
+export function deleteSetting(db: DbExecutor, key: SettingKey): void {
+  db.delete(settings).where(eq(settings.key, key)).run();
 }

@@ -21,3 +21,13 @@ export const OPEN_ATTEMPT_STATUSES = [
   'in_flight',
   'unknown',
 ] as const satisfies readonly AttemptStatus[];
+
+/** Error code marking an uncertain attempt that the user resolved by hand. */
+export const RESOLVED_BY_USER = 'resolved_by_user';
+
+const MAX_RETRY_DELAY_MS = 60 * 60 * 1000;
+
+/** Exponential backoff for retryable failures: base, 2×base, 4×base…, capped at one hour. */
+export function retryDelayMs(retryCount: number, baseSeconds: number): number {
+  return Math.min(baseSeconds * 1000 * 2 ** retryCount, MAX_RETRY_DELAY_MS);
+}

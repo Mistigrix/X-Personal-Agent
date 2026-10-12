@@ -58,6 +58,7 @@ export const CANCELLABLE_STATUSES = [
   'pending_confirmation',
   'scheduled',
   'failed',
+  'uncertain',
 ] as const satisfies readonly PostStatus[];
 
 const TRANSITIONS: Readonly<Record<PostStatus, readonly PostStatus[]>> = {
@@ -66,7 +67,8 @@ const TRANSITIONS: Readonly<Record<PostStatus, readonly PostStatus[]>> = {
   draft: ['draft', 'scheduled', 'rejected'],
   // scheduled -> scheduled: rescheduling, or an edit of a personal post.
   // scheduled -> draft: an approved AI post was edited, so its approval is void.
-  scheduled: ['scheduled', 'draft', 'publishing', 'cancelled'],
+  // scheduled -> failed: blocked by an integrity check before anything was sent.
+  scheduled: ['scheduled', 'draft', 'publishing', 'failed', 'cancelled'],
   publishing: ['published', 'scheduled', 'failed', 'uncertain'],
   uncertain: ['published', 'scheduled', 'cancelled'],
   failed: ['scheduled', 'cancelled'],

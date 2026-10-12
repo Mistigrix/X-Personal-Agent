@@ -5,8 +5,13 @@
 import { parsePublicId } from '../../shared/ids.ts';
 
 const ACTIONS = {
+  /** Personal post preview. */
   queue: 'q',
   discard: 'x',
+  /** Failed or uncertain publication alerts. */
+  retry: 'r',
+  markPublished: 'm',
+  cancel: 'c',
 } as const;
 
 export type CallbackAction = keyof typeof ACTIONS;

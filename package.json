@@ -22,9 +22,12 @@
     "db:migrate": "node scripts/db-migrate.ts",
     "init:local": "node scripts/init-local.ts",
     "check:secrets": "node scripts/check-secrets.ts",
-    "telegram:whoami": "node scripts/telegram-whoami.ts"
+    "telegram:whoami": "node scripts/telegram-whoami.ts",
+    "schedule:preview": "node scripts/schedule-preview.ts",
+    "x:verify": "node scripts/x-verify.ts"
   },
   "dependencies": {
+    "@xdevplatform/xdk": "0.6.6",
     "better-sqlite3": "^13.0.3",
     "drizzle-orm": "^0.45.4",
     "grammy": "^1.46.0",

@@ -7,9 +7,8 @@ import type { MessageEntity, Update, UserFromGetMe } from 'grammy/types';
 import { createBot } from '../../src/integrations/telegram/bot.ts';
 import type { ViewContext } from '../../src/integrations/telegram/views.ts';
 import type { QueueService } from '../../src/services/queue-service.ts';
-import { createLogger } from '../../src/shared/logger.ts';
 import { fakeTelegramToken } from './fixtures.ts';
-import { createTestServices, type TestServices } from './services.ts';
+import { createTestServices, silentLogger, type TestServices } from './services.ts';
 
 export const OWNER_ID = 111111;
 export const STRANGER_ID = 999999;
@@ -30,7 +29,7 @@ export const TEST_VIEW: ViewContext = {
   timezone: 'Africa/Abidjan',
   maxWeightedLength: 280,
   publishMode: 'dry-run',
-  publishingAvailable: false,
+  publishingAvailable: true,
 };
 
 export interface ApiCall {
@@ -56,17 +55,13 @@ export function createTelegramHarness(
   options: Parameters<typeof createTestServices>[0] & { queue?: QueueService } = {},
 ): TelegramHarness {
   const services = createTestServices(options);
-  const logger = createLogger({
-    level: 'silent',
-    format: 'json',
-    secrets: [],
-    destination: { write: () => undefined },
-  });
+  const logger = silentLogger();
   const bot = createBot({
     token: fakeTelegramToken(),
     allowedUserIds: [OWNER_ID],
     queue: options.queue ?? services.queue,
     scheduler: services.scheduler,
+    publisher: services.publisher,
     view: TEST_VIEW,
     logger,
     botInfo: BOT_INFO,
