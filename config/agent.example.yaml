@@ -1,0 +1,125 @@
+# -----------------------------------------------------------------------------
+# x-personal-agent — behaviour configuration (example)
+#
+# `pnpm init:local` copies this file to local/agent.yaml (gitignored). Edit that
+# copy, not this file. Secrets never go here: they belong in .env.
+# Values below are examples; most keys have defaults and can be omitted.
+#
+# Not configurable on purpose: AI-generated posts always require your explicit
+# approval of their exact text before they can be published.
+# -----------------------------------------------------------------------------
+
+configVersion: 1
+
+# IANA timezone used for publication windows and for displaying dates.
+# Timestamps are stored in UTC.
+timezone: Africa/Abidjan
+
+schedule:
+  # Target, not a quota: empty slots stay empty. Never more than the number of windows.
+  postsPerDay: 3
+  # Days on which posts may be published.
+  activeDays: [mon, tue, wed, thu, fri, sat, sun]
+  # Local-time windows, in chronological order. Each day, one publication time is
+  # picked inside each window (varying from day to day).
+  windows:
+    - { start: "08:00", end: "09:30" }
+    - { start: "12:30", end: "14:00" }
+    - { start: "18:30", end: "20:30" }
+  # Minimum time between two publications.
+  minGapMinutes: 90
+  # A post overdue by more than this (after a pause or downtime) is moved to the
+  # next free slot instead of being published late in a burst.
+  maxLatenessMinutes: 30
+
+publishing:
+  # Maximum length as counted by X (weighted: URLs count 23, emoji 2...).
+  # 280 for standard accounts; Premium accounts can post longer.
+  maxWeightedLength: 280
+  # Posts containing a URL cost much more on the X API (see README).
+  # allow: no warning | confirm: warn and ask before queuing | block: refuse.
+  urlPolicy: confirm
+  requestTimeoutSeconds: 20
+  # Retries apply only when X definitely did not create the post.
+  maxRetries: 3
+  retryBaseDelaySeconds: 60
+  # When the outcome of a publication is uncertain (timeout, server error), the
+  # agent checks your timeline instead of blindly retrying.
+  reconcile:
+    initialDelaySeconds: 60
+    intervalSeconds: 180
+    maxChecks: 5
+    # false: if the post is not found, ask you what to do (recommended).
+    autoRetryIfNotFound: false
+
+telegram:
+  # Show a preview with [Queue] / [Discard] before queuing a post you send.
+  confirmPersonalPosts: true
+
+ai:
+  # false: personal posts only (no OpenAI key or editorial profile needed).
+  enabled: true
+  # OpenAI model IDs per task. Check which models your account can use.
+  models:
+    ideas: gpt-6.1-sol
+    drafting: gpt-6.1-sol
+    evaluation: gpt-6-luna
+  # none | minimal | low | medium | high | xhigh (support depends on the model)
+  reasoningEffort: medium
+  ideasPerRequest: 5
+  # Automatic regenerations when a draft fails the quality checks.
+  maxRegenerations: 2
+  autoGenerate:
+    # Generate drafts for upcoming free slots once a day, for your review.
+    enabled: true
+    at: "07:00"
+    # Never more than this many drafts waiting for your review.
+    maxPendingDrafts: 3
+
+editorial:
+  languages:
+    default: en
+    allowed: [en, fr]
+    # How to choose the language of each post. One language per post; no automatic translations.
+    guidance: >
+      Write in English for technical topics aimed at an international audience.
+      Write in French for posts about the local tech and entrepreneurship ecosystem.
+  # Relative weights of post categories (any lowercase names you like).
+  contentMix:
+    educational: 30
+    technical: 25
+    opinion: 20
+    personal: 15
+    inspirational: 10
+  topics:
+    focus:
+      - web development
+      - developer tooling
+      - building in public
+    avoid:
+      - politics
+      - cryptocurrency price speculation
+  # Phrases generated drafts must never contain.
+  bannedPhrases:
+    - "game-changer"
+    - "in today's fast-paced world"
+    - "let's dive in"
+  hashtags:
+    max: 1
+  emojis:
+    max: 2
+  checks:
+    # How many recent posts to compare new drafts against.
+    lookbackPosts: 50
+    # Similarity (0.5–1) above which a draft counts as a near-duplicate.
+    nearDuplicateThreshold: 0.8
+    # Days before the same topic can be covered again.
+    topicCooldownDays: 3
+
+paths:
+  # Your editorial profile (Markdown files). Point to examples/profile to try the
+  # fictional demo profile.
+  profileDir: ./local/profile
+  promptsDir: ./prompts
+  # Files placed here override the templates in promptsDir.
+  promptOverridesDir: ./local/prompts

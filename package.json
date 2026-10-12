@@ -1,0 +1,42 @@
+{
+  "name": "x-personal-agent",
+  "version": "0.1.0",
+  "description": "Self-hosted agent that publishes your own posts on X and drafts AI posts for your explicit approval, driven from a private Telegram bot.",
+  "license": "UNLICENSED",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "start": "node src/main.ts",
+    "dev": "node --watch src/main.ts",
+    "typecheck": "tsc",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "pnpm typecheck && pnpm lint && pnpm test",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "node scripts/db-migrate.ts",
+    "init:local": "node scripts/init-local.ts",
+    "check:secrets": "node scripts/check-secrets.ts"
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.0.3",
+    "drizzle-orm": "^0.45.4",
+    "pino": "^10.4.0",
+    "yaml": "^2.9.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.15",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^24.19.2",
+    "drizzle-kit": "^0.31.11",
+    "pino-pretty": "^13.2.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3"
+  }
+}

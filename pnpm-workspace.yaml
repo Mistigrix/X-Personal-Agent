@@ -1,0 +1,10 @@
+# pnpm settings (this is a single-package repository, not a monorepo).
+
+# Only these dependencies may run install scripts. better-sqlite3 needs one to
+# fetch or build its native binding; everything else is blocked by default.
+onlyBuiltDependencies:
+  - better-sqlite3
+  - esbuild
+
+# Refuse package versions published less than 24 hours ago (supply-chain hygiene).
+minimumReleaseAge: 1440

@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+
+# Private local data: your config, editorial profile, database, backups and
+# prompt overrides. Never commit this directory.
+local/
+
+# Environment files hold secrets. Only the placeholder template is tracked.
+.env
+.env.*
+!.env.example
+
+# SQLite databases, journals and backups (wherever they end up)
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.bak
+backups/
+
+# Logs
+logs/
+*.log
+
+# Test and tooling output
+coverage/
+.vitest/
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+.claude/settings.local.json
