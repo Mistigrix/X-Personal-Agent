@@ -7,7 +7,7 @@ A self-hosted agent that keeps your X (Twitter) account active without making it
 
 It runs as a single Node.js process with a SQLite database. You configure it entirely through local files, without modifying source code.
 
-> **Status: early development.** Milestone 1 of 6 is done: configuration, validation, database schema and logging. The Telegram bot, scheduling and publication are not implemented yet. See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the architecture and roadmap.
+> **Status: early development.** Milestones 1–2 of 6 are done: configuration, database, and the Telegram bot with a persistent personal-post queue and publication slots. **Publishing to X is not implemented yet**: queued posts stay in the queue. See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the roadmap.
 
 ## Safety model
 
@@ -43,12 +43,47 @@ pnpm init:local
 
 Then:
 
-1. Fill in `.env`: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USER_IDS`, and `OPENAI_API_KEY` if AI is enabled.
+1. Set up the Telegram bot (see [Telegram setup](#telegram-setup)) and fill in `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_USER_IDS` in `.env`. Add `OPENAI_API_KEY` if AI is enabled.
 2. Review `local/agent.yaml`.
 3. Rewrite each file in `local/profile/` with your own information and delete its `example-profile` line. Alternatively, set `ai.enabled: false` to use personal posts only.
 4. Run `pnpm start`.
 
 To try the agent with the fictional demo persona, set `paths.profileDir: ./examples/profile` in `local/agent.yaml`.
+
+## Telegram setup
+
+1. In Telegram, message [@BotFather](https://t.me/BotFather), send `/newbot` and follow the steps. Copy the token into `TELEGRAM_BOT_TOKEN` in `.env`.
+2. Find your numeric user ID: run `pnpm telegram:whoami`, then send any message to your bot. Your ID is printed **in the terminal** (the bot never replies). Press Ctrl+C.
+3. Put the ID in `TELEGRAM_ALLOWED_USER_IDS`. Separate several IDs with commas.
+4. Run `pnpm start` and open a private chat with your bot.
+
+Only allowlisted users in private chats are answered. Everyone else is ignored without a reply. Only one process can receive the bot's updates at a time, so stop the agent before running `telegram:whoami`.
+
+## Using the bot
+
+**Submitting a post:** send any text message. The bot replies with a preview:
+- the exact text and its length as counted by X
+- warnings, if any (links, possible credentials)
+- the publication time it would get
+
+Tap **✅ Queue** to queue it or **🗑 Discard** to drop it. The text is stored exactly as you sent it, with no rewriting or trimming. Tapping a button twice has no extra effect.
+
+**Scheduling:**
+- Each day has up to `schedule.postsPerDay` slots, one inside each of the first windows.
+- The time within a window varies from day to day, and posts are always at least `minGapMinutes` apart.
+- Posts take the earliest free slot, in order.
+- Empty slots stay empty: nothing is invented to fill them.
+
+| Command | Description |
+|---|---|
+| `/queue` | List queued posts with their IDs and publication times |
+| `/cancel ID` | Cancel a queued post (frees its slot) |
+| `/status` | Mode (dry run or live), pause state, counts, next publication |
+| `/pause`, `/resume` | Pause or resume automatic publication |
+| `/add` | How to submit a post |
+| `/help` | List commands |
+
+To change a queued post, `/cancel` it and send the corrected text. Edits to messages already sent are not applied.
 
 ## Configuration
 
@@ -103,15 +138,18 @@ HTML comments (`<!-- ... -->`) in these files are guidance for you and are not s
 | `pnpm db:migrate` | Apply database migrations (also done automatically at startup) |
 | `pnpm db:generate` | Generate a migration after changing `src/db/schema.ts` |
 | `pnpm check:secrets` | Scan committable files for private files and credentials |
+| `pnpm telegram:whoami` | Print the Telegram user ID of whoever messages the bot |
 
 ## Project structure
 
 ```
 src/
   config/       environment, YAML config and profile loading + validation
-  domain/       business vocabulary and rules (pure, no I/O)
-  db/           Drizzle schema and SQLite client
-  shared/       logging, secret redaction, process helpers
+  domain/       business rules, pure and without I/O: post states, slots, text analysis
+  db/           Drizzle schema, SQLite client, repositories
+  services/     use cases: personal post queue, scheduler, notifications
+  integrations/ external systems (Telegram bot today; X and OpenAI later)
+  shared/       logging, secret redaction, clock, IDs, process helpers
   main.ts       composition root
 drizzle/        generated SQL migrations
 prompts/        generic prompt templates

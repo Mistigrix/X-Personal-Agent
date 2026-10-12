@@ -8,7 +8,7 @@ Last updated: 2026-10-12
 |---|---|
 | 0 — Repository inspection & technical plan | Done (defaults in §14 applied) |
 | 1 — Project foundations | Done, 2026-10-12 |
-| 2 — Telegram & personal post queue | Not started |
+| 2 — Telegram & personal post queue | Done, 2026-10-12 |
 | 3 — X API integration & scheduling | Not started |
 | 4 — AI editorial engine | Not started |
 | 5 — Telegram approval workflow | Not started |
@@ -31,6 +31,31 @@ Last updated: 2026-10-12
   - **Root path:** the project root is derived from the code location, not the working directory.
   - **AI models:** `ai.models` is always required (even with `ai.enabled: false`) to keep the config type simple.
   - **License:** left as `UNLICENSED` until you choose one (before M6).
+
+**M2 (2026-10-12).**
+- **Delivered:**
+  - grammY bot with allowlist and private-chat middleware.
+  - Commands: `/start` `/help` `/add` `/queue` `/cancel` `/status` `/pause` `/resume`.
+  - Text intake with a preview and [Queue]/[Discard] buttons that carry the post version.
+  - Pure timezone-aware slot generation, text analysis (`twitter-text` weighting, URL policy, secret warnings) and the post transition table.
+  - Queue and scheduler services, a notifier port with a Telegram adapter (startup notification), and `pnpm telegram:whoami`.
+- **Verification:**
+  - 216 tests pass, including 14 end-to-end bot tests (real handlers and SQLite, recorded Bot API).
+  - A live smoke test against the real bot worked: token accepted, polling, startup notification delivered, clean SIGINT exit.
+  - A fake token exits 78 with a fix message.
+- **Decisions made during M2:**
+  - **When a slot is booked:** slots are booked at confirmation, inside an immediate transaction. The time shown in the preview is a projection.
+  - **Which windows are used:** each day uses the first `postsPerDay` windows.
+  - **Infeasible windows:** config validation and slot generation share `findInfeasibleWindow`.
+  - **Forced confirmation:** warnings (links, possible credentials) force the confirmation step even when `confirmPersonalPosts: false`.
+  - **What can be cancelled:** `pending_confirmation`, `scheduled` and `failed` posts. Cancelling frees the slot through the partial unique index.
+  - **Edited Telegram messages:** not applied. The bot explains how to cancel and resend.
+  - **Startup notification:** controlled by `telegram.notifyOnStartup` (default true).
+  - **`twitter-text` dependency:** it pulls in the deprecated `core-js@2`, whose install script is ignored.
+- **Known limitations, addressed in M3:**
+  - Nothing is published yet, so `/pause` only records the state.
+  - Overdue posts are not yet moved to new slots.
+  - There is no single-instance lease yet. A second instance is only caught by Telegram's 409 conflict.
 
 ---
 

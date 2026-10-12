@@ -54,7 +54,10 @@ publishing:
 
 telegram:
   # Show a preview with [Queue] / [Discard] before queuing a post you send.
+  # Posts with warnings (links, possible credentials) always need confirmation.
   confirmPersonalPosts: true
+  # Send a message when the agent starts (useful to notice unexpected restarts).
+  notifyOnStartup: true
 
 ai:
   # false: personal posts only (no OpenAI key or editorial profile needed).

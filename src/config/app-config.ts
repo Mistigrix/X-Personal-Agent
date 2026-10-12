@@ -8,10 +8,8 @@
 import { readFileSync } from 'node:fs';
 import { LineCounter, parseDocument } from 'yaml';
 import { z } from 'zod';
+import { findInfeasibleWindow, minutesOfDay, WEEKDAYS } from '../domain/scheduling.ts';
 import { type ConfigIssue, fromZodError } from './issues.ts';
-
-const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
-export type Weekday = (typeof WEEKDAYS)[number];
 
 export function isValidTimeZone(timeZone: string): boolean {
   try {
@@ -20,12 +18,6 @@ export function isValidTimeZone(timeZone: string): boolean {
   } catch {
     return false;
   }
-}
-
-/** Minutes since local midnight for an `HH:mm` string already validated by `localTime`. */
-export function minutesOfDay(time: string): number {
-  const [hours = 0, minutes = 0] = time.split(':').map(Number);
-  return hours * 60 + minutes;
 }
 
 const localTime = z
@@ -71,23 +63,31 @@ const scheduleSchema = z
         message: `${schedule.postsPerDay} posts per day need at least ${schedule.postsPerDay} publication windows, but ${schedule.windows.length} are configured`,
       });
     }
+    let ordered = true;
     schedule.windows.forEach((window, index) => {
       const previous = schedule.windows[index - 1];
-      if (!previous) return;
-      if (minutesOfDay(window.start) < minutesOfDay(previous.end)) {
+      if (previous && minutesOfDay(window.start) < minutesOfDay(previous.end)) {
+        ordered = false;
         ctx.addIssue({
           code: 'custom',
           path: ['windows', index],
           message: 'windows must be listed in chronological order and must not overlap',
         });
-      } else if (minutesOfDay(window.end) - minutesOfDay(previous.start) < schedule.minGapMinutes) {
-        ctx.addIssue({
-          code: 'custom',
-          path: ['windows', index],
-          message: `is too close to the previous window to keep ${schedule.minGapMinutes} minutes (minGapMinutes) between posts`,
-        });
       }
     });
+    if (!ordered) return;
+    const infeasible = findInfeasibleWindow(
+      schedule.windows,
+      schedule.postsPerDay,
+      schedule.minGapMinutes,
+    );
+    if (infeasible !== null) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['windows', infeasible],
+        message: `is too close to the previous windows to keep ${schedule.minGapMinutes} minutes (minGapMinutes) between posts`,
+      });
+    }
   });
 
 const publishingSchema = z.strictObject({
@@ -108,6 +108,7 @@ const publishingSchema = z.strictObject({
 
 const telegramSchema = z.strictObject({
   confirmPersonalPosts: z.boolean().default(true),
+  notifyOnStartup: z.boolean().default(true),
 });
 
 const aiSchema = z.strictObject({

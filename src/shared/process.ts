@@ -1,17 +1,19 @@
 /**
- * Resolves on the first SIGINT or SIGTERM. Keeps the event loop alive until then,
- * so the process does not exit while no other work is scheduled.
+ * Resolves with the reason the process should stop: a SIGINT/SIGTERM signal, or
+ * the settlement of `stopped` (e.g. a background loop that ended). Keeps the
+ * event loop alive until then.
  */
-export function waitForShutdownSignal(): Promise<NodeJS.Signals> {
+export function waitForShutdown(stopped?: Promise<string>): Promise<string> {
   return new Promise((resolve) => {
     const keepAlive = setInterval(() => {}, 2 ** 31 - 1);
-    const onSignal = (signal: NodeJS.Signals) => {
+    const finish = (reason: string) => {
       clearInterval(keepAlive);
-      process.off('SIGINT', onSignal);
-      process.off('SIGTERM', onSignal);
-      resolve(signal);
+      process.off('SIGINT', finish);
+      process.off('SIGTERM', finish);
+      resolve(reason);
     };
-    process.on('SIGINT', onSignal);
-    process.on('SIGTERM', onSignal);
+    process.on('SIGINT', finish);
+    process.on('SIGTERM', finish);
+    stopped?.then(finish, () => finish('background task failed'));
   });
 }

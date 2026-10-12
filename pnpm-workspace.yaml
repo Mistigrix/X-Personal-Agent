@@ -8,3 +8,8 @@ onlyBuiltDependencies:
 
 # Refuse package versions published less than 24 hours ago (supply-chain hygiene).
 minimumReleaseAge: 1440
+
+# Install scripts we deliberately never run. core-js@2 (pulled in by twitter-text)
+# only prints a donation banner.
+ignoredBuiltDependencies:
+  - core-js
