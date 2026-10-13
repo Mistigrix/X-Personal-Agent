@@ -12,7 +12,7 @@ Last updated: 2026-10-12
 | 3 — X API integration & scheduling | Done, 2026-10-12 |
 | 4 — AI editorial engine | Done, 2026-10-13 |
 | 5 — Telegram approval workflow | Done, 2026-10-13 |
-| 6 — Production hardening & open-source release | Done, 2026-10-13 (license and commit-email decisions pending: see M6 log) |
+| 6 — Production hardening & open-source release | Done, 2026-10-13 (commit-email decision pending: see M6 log) |
 
 ### Milestone log
 
@@ -30,7 +30,7 @@ Last updated: 2026-10-12
   - **Demo profile:** used only when `paths.profileDir` points at `examples/profile`. Otherwise the agent refuses to start while any profile file still contains the `example-profile` marker.
   - **Root path:** the project root is derived from the code location, not the working directory.
   - **AI models:** `ai.models` is always required (even with `ai.enabled: false`) to keep the config type simple.
-  - **License:** left as `UNLICENSED` until you choose one (before M6).
+  - **License:** left as `UNLICENSED` until chosen (MIT was chosen in M6).
 
 **M2 (2026-10-12).**
 - **Delivered:**
@@ -157,7 +157,7 @@ Last updated: 2026-10-12
 - **Release audit:**
   - No personal data in tracked files.
   - **The commit metadata of all commits contains the author's personal email**: choose before the first public push (see the summary).
-  - **No license chosen yet** (`package.json` says `UNLICENSED`).
+  - **License:** MIT (`LICENSE`), chosen by the owner.
   - **`CLAUDE.md`** added: working guide for AI coding agents (commands, invariants, architecture, conventions).
 
 ---

@@ -309,4 +309,4 @@ Three plain posts a day cost about $1.35/month. By default the agent warns you b
 
 ## License
 
-Not chosen yet. A license will be added before the first public release.
+[MIT](LICENSE).

@@ -2,7 +2,7 @@
   "name": "x-personal-agent",
   "version": "0.1.0",
   "description": "Self-hosted agent that publishes your own posts on X and drafts AI posts for your explicit approval, driven from a private Telegram bot.",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "engines": {

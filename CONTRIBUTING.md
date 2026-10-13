@@ -1,5 +1,7 @@
 # Contributing
 
+Contributions are welcome. By contributing, you agree that your contributions are licensed under the project's [MIT License](LICENSE).
+
 ## Setup
 
 Node.js 24+ and pnpm 10.
