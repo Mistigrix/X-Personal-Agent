@@ -7,7 +7,7 @@ A self-hosted agent that keeps your X (Twitter) account active without making it
 
 It runs as a single Node.js process with a SQLite database. You configure it entirely through local files, without modifying source code.
 
-> **Status: early development.** Milestones 1–3 of 6 are done: configuration, the Telegram bot and personal-post queue, and publication to X with retries, uncertain-outcome reconciliation and a dry-run mode. AI-generated drafts are not implemented yet. See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the roadmap.
+> **Status: early development.** Milestones 1–4 of 6 are done: configuration, the Telegram bot and personal-post queue, publication to X (retries, uncertain-outcome reconciliation, dry run), and the AI editorial engine (ideas and drafts, available from the command line). Reviewing AI drafts in Telegram comes next. See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the roadmap.
 
 ## Safety model
 
@@ -135,6 +135,40 @@ The X API has no idempotency key. If a request times out, the post may or may no
 
 The guarantee is therefore **at most one automatic send per post version**, with a human decision for any outcome that cannot be confirmed. Exactly-once delivery is not possible with this API.
 
+## AI drafts
+
+The editorial engine writes posts **from your profile only**:
+1. It proposes ideas, favouring under-represented categories and avoiding recent topics.
+2. It writes a draft for an idea, in one language chosen from your language policy. Posts are never translated into both languages.
+3. It checks the draft. If a check fails, it explains why to the model and asks for a revision, up to `ai.maxRegenerations` times. The checks cover:
+   - length as counted by X, and links
+   - possible credentials
+   - banned phrases, and hashtag and emoji limits
+   - language
+   - duplicates and near-duplicates of recent posts, and repetitive openings
+   - avoided topics
+   - **claims not supported by your profile**
+4. A second model call reviews the draft as an editor: claims, voice, value and clarity. This review is advisory, and it can also trigger a revision.
+
+Drafts are stored with their warnings, review and claims. **A draft is never published without your explicit approval of its exact text.** This is enforced at publication time and cannot be configured away. Approving drafts in Telegram arrives in Milestone 5. For now, try the engine from the command line:
+
+```bash
+pnpm ai:ideas 3
+```
+
+```bash
+pnpm ai:draft IDEA_ID
+```
+
+To try it with the fictional demo persona, set `paths.profileDir: ./examples/profile`. Use a separate `DATABASE_PATH` if you don't want demo drafts in your real database.
+
+**What is sent to OpenAI:**
+- your editorial profile (without the `<!-- -->` comments)
+- recent idea topics
+- the drafts being written and reviewed
+
+Requests use `store: false`, so OpenAI does not keep the responses for later retrieval. A draft typically costs 2 to 6 model calls. Each command prints its token usage.
+
 ## Configuration
 
 | Layer | File (gitignored) | Committed template | Contains |
@@ -191,17 +225,21 @@ HTML comments (`<!-- ... -->`) in these files are guidance for you and are not s
 | `pnpm telegram:whoami` | Print the Telegram user ID of whoever messages the bot |
 | `pnpm schedule:preview [days]` | Show upcoming publication times and the posts assigned to them |
 | `pnpm x:verify` | Check the X credentials (one paid request, about $0.01) |
+| `pnpm ai:ideas [count]` | Generate post ideas from your profile (OpenAI) |
+| `pnpm ai:draft IDEA_ID` | Write, check and review a draft for an idea (OpenAI) |
 
 ## Project structure
 
 ```
 src/
   config/       environment, YAML config and profile loading + validation
-  domain/       business rules, pure and without I/O: post states, slots, text analysis
+  domain/       business rules, pure and without I/O: post states, slots, text analysis,
+                publication policy, editorial checks and profile context
   db/           Drizzle schema, SQLite client, repositories
-  services/     use cases: queue, scheduler, publisher, reconciler, notifications, instance lease
+  services/     use cases: queue, scheduler, publisher, reconciler, notifications, instance lease,
+                editorial engine (ideas, drafts, prompts)
   jobs/         the 30-second ticker and the work done on each tick
-  integrations/ external systems: Telegram bot, X API (official SDK, dry-run client)
+  integrations/ external systems: Telegram bot, X API (official SDK, dry-run client), OpenAI
   shared/       logging, secret redaction, clock, IDs, process helpers
   main.ts       composition root
 drizzle/        generated SQL migrations

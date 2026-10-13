@@ -24,7 +24,9 @@
     "check:secrets": "node scripts/check-secrets.ts",
     "telegram:whoami": "node scripts/telegram-whoami.ts",
     "schedule:preview": "node scripts/schedule-preview.ts",
-    "x:verify": "node scripts/x-verify.ts"
+    "x:verify": "node scripts/x-verify.ts",
+    "ai:ideas": "node scripts/ai-ideas.ts",
+    "ai:draft": "node scripts/ai-draft.ts"
   },
   "dependencies": {
     "@xdevplatform/xdk": "0.6.6",
@@ -32,6 +34,7 @@
     "drizzle-orm": "^0.45.4",
     "grammy": "^1.46.0",
     "luxon": "^3.7.2",
+    "openai": "^7.32.0",
     "pino": "^10.4.0",
     "twitter-text": "^3.1.0",
     "yaml": "^2.9.1",

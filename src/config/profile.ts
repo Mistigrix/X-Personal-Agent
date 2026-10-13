@@ -4,7 +4,10 @@
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { stripMarkdownComments } from '../domain/editorial/profile-context.ts';
 import type { ConfigIssue } from './issues.ts';
+
+export { stripMarkdownComments };
 
 export const PROFILE_SECTIONS = {
   identity: { file: 'identity.md', required: true, purpose: 'who you are professionally' },
@@ -44,10 +47,6 @@ export interface EditorialProfile {
 export type ProfileResult =
   | { ok: true; profile: EditorialProfile }
   | { ok: false; issues: ConfigIssue[] };
-
-export function stripMarkdownComments(markdown: string): string {
-  return markdown.replace(/<!--[\s\S]*?-->/g, '');
-}
 
 /**
  * @param directory absolute path of the profile directory

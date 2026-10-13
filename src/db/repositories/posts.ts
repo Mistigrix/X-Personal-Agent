@@ -1,4 +1,4 @@
-import { and, asc, count, eq, gte, inArray, isNotNull, lt, lte, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, inArray, isNotNull, lt, lte, sql } from 'drizzle-orm';
 import {
   type PostSource,
   type PostStatus,
@@ -24,11 +24,13 @@ export interface NewPost {
   scheduledAt?: Date | null;
   slotKey?: string | null;
   language?: string | null;
+  ideaId?: number | null;
   text: string;
   contentHash: string;
   weightedLength: number;
   origin: VersionOrigin;
   checks?: Record<string, unknown> | null;
+  generation?: Record<string, unknown> | null;
   now: Date;
 }
 
@@ -41,6 +43,7 @@ export function insertPostWithFirstVersion(db: DbExecutor, input: NewPost): Post
       status: input.status,
       currentVersion: 1,
       language: input.language ?? null,
+      ideaId: input.ideaId ?? null,
       scheduledAt: input.scheduledAt ?? null,
       slotKey: input.slotKey ?? null,
       createdAt: input.now,
@@ -58,11 +61,65 @@ export function insertPostWithFirstVersion(db: DbExecutor, input: NewPost): Post
       weightedLength: input.weightedLength,
       origin: input.origin,
       checks: input.checks ?? null,
+      generation: input.generation ?? null,
       createdAt: input.now,
     })
     .returning()
     .get();
   return { post, version };
+}
+
+export interface NewVersion {
+  postId: number;
+  version: number;
+  text: string;
+  contentHash: string;
+  weightedLength: number;
+  origin: VersionOrigin;
+  checks?: Record<string, unknown> | null;
+  generation?: Record<string, unknown> | null;
+  now: Date;
+}
+
+/** Adds a version. The caller then points `posts.current_version` at it. */
+export function insertVersion(db: DbExecutor, input: NewVersion): PostVersionRow {
+  const { now, ...values } = input;
+  return db
+    .insert(postVersions)
+    .values({
+      ...values,
+      checks: values.checks ?? null,
+      generation: values.generation ?? null,
+      createdAt: now,
+    })
+    .returning()
+    .get();
+}
+
+/** Current texts of the most recent posts in the given statuses, newest first. */
+export function listRecentTexts(
+  db: DbExecutor,
+  statuses: readonly PostStatus[],
+  limit: number,
+): string[] {
+  return db
+    .select({ text: postVersions.text })
+    .from(posts)
+    .innerJoin(postVersions, currentVersionJoin)
+    .where(inArray(posts.status, [...statuses]))
+    .orderBy(desc(posts.createdAt), desc(posts.id))
+    .limit(limit)
+    .all()
+    .map((row) => row.text);
+}
+
+export function findByIdeaId(db: DbExecutor, ideaId: number): PostRecord | undefined {
+  return db
+    .select({ post: posts, version: postVersions })
+    .from(posts)
+    .innerJoin(postVersions, currentVersionJoin)
+    .where(eq(posts.ideaId, ideaId))
+    .get();
 }
 
 export function publicIdExists(db: DbExecutor, publicId: string): boolean {
@@ -171,6 +228,7 @@ export type PostChanges = Partial<
   Pick<
     PostRow,
     | 'status'
+    | 'currentVersion'
     | 'scheduledAt'
     | 'slotKey'
     | 'retryCount'

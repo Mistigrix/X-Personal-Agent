@@ -10,7 +10,7 @@ Last updated: 2026-10-12
 | 1 — Project foundations | Done, 2026-10-12 |
 | 2 — Telegram & personal post queue | Done, 2026-10-12 |
 | 3 — X API integration & scheduling | Done, 2026-10-12 |
-| 4 — AI editorial engine | Not started |
+| 4 — AI editorial engine | Done, 2026-10-13 |
 | 5 — Telegram approval workflow | Not started |
 | 6 — Production hardening & open-source release | Not started |
 
@@ -84,6 +84,31 @@ Last updated: 2026-10-12
   - Reconciliation of Premium long posts relies on a prefix match of the possibly truncated `text`.
   - "Moved overdue posts" notifications are best effort (not stored).
   - Live publication still needs your credentials and an explicitly approved test post.
+
+**M4 (2026-10-13).**
+- **Delivered:**
+  - Profile context: labelled sections stating what each may be used for (VERIFIED FACTS, OPINIONS, examples as style only…), with comments stripped.
+  - Strict prompt renderer (missing variables refused; local overrides; template hash recorded).
+  - `LlmClient` port with an OpenAI adapter: Responses API, Structured Outputs via Zod, `store: false`, a prompt-cache key per task, typed errors for refusal, cut-off answer, invalid output, auth, rate limit and timeout.
+  - Idea generation with content-mix guidance, language filter and duplicate/cooldown filters.
+  - Draft generation with deterministic checks and automatic revision, giving the model the reasons and its previous draft.
+  - Advisory editor evaluation: an unsupported claim or a "discard" triggers a revision.
+  - Regeneration (new version; approval of the previous version void; refused if the author changed the post meantime).
+  - `job_runs` records; `pnpm ai:ideas` and `pnpm ai:draft`.
+  - Final prompt templates.
+- **Verification:**
+  - 364 tests pass, including an OpenAI contract test against a local fake Responses API and a test that each template uses exactly the variables the service provides.
+  - An AI draft is never claimable without an approval (policy test).
+  - Both CLI commands ran end to end through the real SDK against a local fake server, including one automatic revision.
+  - **Not yet run against the real OpenAI API** (no key in `.env`).
+- **Decisions made during M4:**
+  - **Checks that force a revision:** credentials, banned phrases, hashtag/emoji limits, language, duplicates and unsupported claims are errors.
+  - **Checks that only warn:** links, avoided topics, repetitive openings and the editor's notes.
+  - **If the review call fails:** the draft is kept, with a warning.
+  - **Persistence:** drafts are persisted only after passing the checks; failures store nothing (the job run records them).
+  - **Profile changes:** the profile is read at startup, so changes need a restart.
+  - **Config:** `ai.requestTimeoutSeconds` added; the reasoning effort list gained `max`.
+- **Not in M4 (M5):** Telegram review cards, `/ideas`, `/drafts`, approvals, the daily automatic generation job.
 
 ---
 

@@ -67,8 +67,10 @@ ai:
     ideas: gpt-6.1-sol
     drafting: gpt-6.1-sol
     evaluation: gpt-6-luna
-  # none | minimal | low | medium | high | xhigh (support depends on the model)
+  # none | minimal | low | medium | high | xhigh | max (support depends on the model)
   reasoningEffort: medium
+  # Reasoning models can take a while; requests are retried twice by the SDK.
+  requestTimeoutSeconds: 120
   ideasPerRequest: 5
   # Automatic regenerations when a draft fails the quality checks.
   maxRegenerations: 2

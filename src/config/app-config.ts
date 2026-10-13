@@ -118,7 +118,10 @@ const aiSchema = z.strictObject({
     drafting: modelId,
     evaluation: modelId,
   }),
-  reasoningEffort: z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']).default('medium'),
+  reasoningEffort: z
+    .enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])
+    .default('medium'),
+  requestTimeoutSeconds: z.int().min(10).max(600).default(120),
   ideasPerRequest: z.int().min(1).max(10).default(5),
   maxRegenerations: z.int().min(0).max(5).default(2),
   autoGenerate: z
