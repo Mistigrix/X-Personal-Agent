@@ -10,6 +10,7 @@ import type { PublisherService } from '../../services/publisher-service.ts';
 import type { QueueService } from '../../services/queue-service.ts';
 import type { ReviewService } from '../../services/review-service.ts';
 import type { SchedulerService } from '../../services/scheduler-service.ts';
+import type { StatsService } from '../../services/stats-service.ts';
 import type { BackgroundTasks } from '../../shared/background.ts';
 import { parsePublicId } from '../../shared/ids.ts';
 import type { Logger } from '../../shared/logger.ts';
@@ -45,6 +46,7 @@ import {
   resumeView,
   retryOutcome,
   reviewCardView,
+  statsView,
   statusView,
   unknownCommandView,
   unsupportedMessageView,
@@ -60,6 +62,7 @@ export interface BotDependencies {
   scheduler: SchedulerService;
   publisher: Pick<PublisherService, 'retry' | 'markPublished'>;
   review: ReviewService;
+  stats: StatsService;
   /** Null when AI drafting is disabled. */
   editorial: EditorialService | null;
   background: BackgroundTasks;
@@ -75,6 +78,7 @@ export const BOT_COMMANDS = [
   { command: 'drafts', description: 'AI drafts waiting for your review' },
   { command: 'queue', description: 'List queued posts' },
   { command: 'status', description: 'Mode, pause state and next publication' },
+  { command: 'stats', description: 'Activity, AI usage and estimated costs' },
   { command: 'cancel', description: 'Cancel a queued post: /cancel ID' },
   { command: 'pause', description: 'Pause automatic publication' },
   { command: 'resume', description: 'Resume automatic publication' },
@@ -122,6 +126,7 @@ export function createBot(deps: BotDependencies): Bot {
   bot.command('status', (ctx) =>
     reply(ctx, statusView(queue.summary(), context, scheduler.isPaused())),
   );
+  bot.command('stats', (ctx) => reply(ctx, statsView(deps.stats.compute())));
   bot.command('pause', (ctx) => {
     const changed = scheduler.pause();
     logger.info({ changed }, 'Publication paused by user');

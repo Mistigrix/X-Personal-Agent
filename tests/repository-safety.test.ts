@@ -42,7 +42,20 @@ const PUBLIC_PATHS = [
   'drizzle/0000_initial_schema.sql',
 ];
 
-describe('.gitignore', () => {
+function insideGitRepository(): boolean {
+  try {
+    execFileSync('git', ['rev-parse', '--is-inside-work-tree'], {
+      cwd: REPO_ROOT,
+      stdio: 'ignore',
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// A source archive (e.g. a ZIP download) has no git metadata to check against.
+describe.skipIf(!insideGitRepository())('.gitignore', () => {
   it.each(PRIVATE_PATHS)('ignores %s', (path) => {
     expect(isIgnoredByGit(path)).toBe(true);
   });

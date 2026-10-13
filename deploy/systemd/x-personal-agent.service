@@ -1,0 +1,36 @@
+# systemd unit for running the agent without Docker.
+# Install: adjust User, WorkingDirectory and the node path, then
+#   sudo cp deploy/systemd/x-personal-agent.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now x-personal-agent
+# Logs: journalctl -u x-personal-agent -f
+
+[Unit]
+Description=x-personal-agent (X posting agent driven from Telegram)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=agent
+WorkingDirectory=/opt/x-personal-agent
+Environment=NODE_ENV=production
+Environment=LOG_FORMAT=json
+ExecStart=/usr/bin/node src/main.ts
+Restart=on-failure
+RestartSec=10
+# Exit code 78 means invalid configuration: restarting will not help.
+RestartPreventExitStatus=78
+# Time for an in-flight publication to record its outcome on shutdown.
+TimeoutStopSec=40
+
+# Hardening: the agent only needs to write to its local/ directory.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/x-personal-agent/local
+CapabilityBoundingSet=
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

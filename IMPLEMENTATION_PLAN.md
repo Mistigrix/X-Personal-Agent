@@ -12,7 +12,7 @@ Last updated: 2026-10-12
 | 3 — X API integration & scheduling | Done, 2026-10-12 |
 | 4 — AI editorial engine | Done, 2026-10-13 |
 | 5 — Telegram approval workflow | Done, 2026-10-13 |
-| 6 — Production hardening & open-source release | Not started |
+| 6 — Production hardening & open-source release | Done, 2026-10-13 (license and commit-email decisions pending: see M6 log) |
 
 ### Milestone log
 
@@ -133,6 +133,32 @@ Last updated: 2026-10-12
 - **Known limitations:**
   - Edits are AI-post only; personal posts are changed by cancel and resend.
   - A daily job interrupted by a restart is not retried the same day.
+
+**M6 (2026-10-13).**
+- **Delivered:**
+  - `/stats`: publications by source, dry runs, links, AI review funnel, OpenAI tokens, X cost estimate from the configurable `costs` prices.
+  - `pnpm db:backup`: online backup, converted to a single file, integrity-checked, `0600`, rotated with `--keep`.
+  - `pnpm healthcheck`: alive while the instance lease is being renewed.
+  - `check:secrets --history`: scans every file version of every commit, including private paths ever committed.
+  - Dockerfile (multi-stage, Debian slim, non-root, healthcheck), `.dockerignore`, `compose.yaml` (read-only filesystem, no capabilities, `no-new-privileges`, 40 s stop grace, log rotation, `AGENT_UID`/`AGENT_GID`), systemd unit (does not restart on exit code 78).
+  - Docs: deployment, configuration reference, operations (backup/restore, problem posts, upgrades), troubleshooting, security (data flows, rotation, leak impact), `SECURITY.md`, `CONTRIBUTING.md`.
+  - The `.gitignore` tests skip outside a git checkout (e.g. a ZIP download).
+- **Verification:**
+  - 409 tests pass.
+  - The history scan is clean (204 file versions). In a throwaway clone, it found a fake key that had been deleted in a later commit.
+  - Fresh-copy acceptance: install, then `pnpm check` (all passing inside a git checkout), then `init:local`, then actionable errors, then demo profile and test credentials, then startup up to Telegram authentication.
+  - Docker:
+    - The image builds (484 MB). The build stage uses `node:24-bookworm`, because installing build tools from the Debian mirrors stalled here.
+    - Run hardened (read-only, no capabilities, non-root):
+      - with no config, exit 78 with fixes;
+      - the database is created in the mounted volume with owner-only permissions;
+      - backup and health check work;
+      - with a real bot token in dry-run: healthy, then SIGTERM gives a clean stop (exit 0, lease released).
+- **Release audit:**
+  - No personal data in tracked files.
+  - **The commit metadata of all commits contains the author's personal email**: choose before the first public push (see the summary).
+  - **No license chosen yet** (`package.json` says `UNLICENSED`).
+  - **`CLAUDE.md`** added: working guide for AI coding agents (commands, invariants, architecture, conventions).
 
 ---
 

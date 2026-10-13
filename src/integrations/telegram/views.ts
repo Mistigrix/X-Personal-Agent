@@ -23,6 +23,7 @@ import type {
   RejectResult,
   ReviewCard,
 } from '../../services/review-service.ts';
+import type { Stats } from '../../services/stats-service.ts';
 import { encodeCallback } from './callbacks.ts';
 
 export interface View {
@@ -113,6 +114,7 @@ const COMMANDS_HELP = [
   '/queue: list queued posts',
   '/cancel ID: cancel a queued post',
   '/status: mode, pause state and next publication',
+  '/stats: activity, AI usage and estimated costs',
   '/pause: pause automatic publication',
   '/resume: resume automatic publication',
   '/add: how to submit a post',
@@ -752,4 +754,32 @@ export function aiDisabledView(): View {
 
 export function noDraftsView(): View {
   return { text: '📭 No AI draft is waiting for review. Use /ideas to get some.' };
+}
+
+const number = (value: number) => Math.round(value).toLocaleString('en-US');
+
+export function statsView(stats: Stats): View {
+  const lines = ['📊 <b>Statistics</b>'];
+  for (const period of stats.periods) {
+    const { published, aiReview, openAiTokens } = period;
+    lines.push(
+      '',
+      `<b>Last ${period.days} days</b>`,
+      `Published on X: ${published.personal + published.ai} (${published.personal} yours, ${published.ai} AI)${published.withLinks > 0 ? `, ${published.withLinks} with links` : ''}`,
+      ...(published.dryRun > 0 ? [`Dry-run publications: ${published.dryRun}`] : []),
+      `AI drafts: ${aiReview.generated} written · ${aiReview.approved} approved · ${aiReview.rejected} rejected`,
+      `OpenAI tokens: ${number(openAiTokens.input)} in (${number(openAiTokens.cachedInput)} cached) · ${number(openAiTokens.output)} out`,
+      `X API, estimated: $${period.estimatedXCostUsd.toFixed(2)} for posts${period.reconciliationChecks > 0 ? ` + ${period.reconciliationChecks} timeline check(s)` : ''}`,
+    );
+  }
+  const open = (status: keyof Stats['open']) => stats.open[status] ?? 0;
+  lines.push(
+    '',
+    `<b>Now</b>: ${open('scheduled')} scheduled · ${open('pending_confirmation')} awaiting confirmation · ${open('draft')} AI drafts to review`,
+  );
+  if (open('failed') + open('uncertain') > 0) {
+    lines.push(`⚠️ ${open('failed')} failed · ${open('uncertain')} uncertain: see /status`);
+  }
+  lines.push('', '<i>Costs are estimates from the prices in your config, not billing data.</i>');
+  return { text: lines.join('\n') };
 }

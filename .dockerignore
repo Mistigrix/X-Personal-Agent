@@ -1,0 +1,21 @@
+# Never send private data or local state to the Docker build.
+.env
+.env.*
+local/
+*.db
+*.db-*
+*.sqlite*
+backups/
+logs/
+*.log
+# Not needed in the image.
+node_modules/
+coverage/
+.git/
+.github/
+.vscode/
+.idea/
+.claude/
+tests/
+**/*.test.ts
+docs/

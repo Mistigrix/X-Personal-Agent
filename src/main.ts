@@ -30,6 +30,7 @@ import { createQueueService } from './services/queue-service.ts';
 import { createReconcilerService } from './services/reconciler-service.ts';
 import { createReviewService } from './services/review-service.ts';
 import { createSchedulerService } from './services/scheduler-service.ts';
+import { createStatsService } from './services/stats-service.ts';
 import { createXAccountResolver, credentialFingerprint } from './services/x-account.ts';
 import { createBackgroundTasks } from './shared/background.ts';
 import { systemClock } from './shared/clock.ts';
@@ -187,6 +188,7 @@ async function main(): Promise<number> {
       scheduler,
       publisher,
       review,
+      stats: createStatsService({ db, clock, prices: config.costs }),
       editorial,
       background,
       view,

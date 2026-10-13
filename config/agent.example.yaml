@@ -121,6 +121,12 @@ editorial:
     # Days before the same topic can be covered again.
     topicCooldownDays: 3
 
+costs:
+  # X API prices in USD, used only for the estimates shown by /stats.
+  # They change over time: check https://docs.x.com/x-api/getting-started/pricing
+  xPostUsd: 0.015
+  xPostWithUrlUsd: 0.20
+
 paths:
   # Your editorial profile (Markdown files). Point to examples/profile to try the
   # fictional demo profile.

@@ -26,7 +26,9 @@
     "schedule:preview": "node scripts/schedule-preview.ts",
     "x:verify": "node scripts/x-verify.ts",
     "ai:ideas": "node scripts/ai-ideas.ts",
-    "ai:draft": "node scripts/ai-draft.ts"
+    "ai:draft": "node scripts/ai-draft.ts",
+    "db:backup": "node scripts/db-backup.ts",
+    "healthcheck": "node scripts/healthcheck.ts"
   },
   "dependencies": {
     "@xdevplatform/xdk": "0.6.6",

@@ -7,7 +7,18 @@ A self-hosted agent that keeps your X (Twitter) account active without making it
 
 It runs as a single Node.js process with a SQLite database. You configure it entirely through local files, without modifying source code.
 
-> **Status: early development.** Milestones 1–5 of 6 are done: configuration, the Telegram bot and personal-post queue, publication to X (retries, uncertain-outcome reconciliation, dry run), the AI editorial engine, and the review of AI drafts in Telegram. Production hardening and the public release come next. See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the roadmap.
+> **Status: early development.** All six milestones of the initial roadmap are done; see [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the design and progress log. See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the roadmap.
+
+## Documentation
+
+| Guide | Covers |
+|---|---|
+| [Deployment](docs/deployment.md) | Docker Compose (recommended), systemd, updates |
+| [Configuration](docs/configuration.md) | Every environment variable, config key and profile file |
+| [Operations](docs/operations.md) | Monitoring, logs, backups and restore, problem posts |
+| [Troubleshooting](docs/troubleshooting.md) | Symptoms, causes and fixes |
+| [Security](docs/security.md) | Data handling, secrets, credential rotation |
+| [Contributing](CONTRIBUTING.md) | Development setup, architecture, rules that must not be weakened |
 
 ## Safety model
 
@@ -81,6 +92,7 @@ Tap **✅ Queue** to queue it or **🗑 Discard** to drop it. The text is stored
 | `/queue` | List queued posts with their IDs and publication times |
 | `/cancel ID` | Cancel a queued post (frees its slot) |
 | `/status` | Mode (dry run or live), pause state, counts, next publication |
+| `/stats` | Publications, AI review decisions, OpenAI tokens, estimated X costs |
 | `/pause`, `/resume` | Pause or resume automatic publication |
 | `/add` | How to submit a post |
 | `/help` | List commands |
@@ -240,10 +252,12 @@ HTML comments (`<!-- ... -->`) in these files are guidance for you and are not s
 | `pnpm init:local` | Create the private local setup from the examples |
 | `pnpm db:migrate` | Apply database migrations (also done automatically at startup) |
 | `pnpm db:generate` | Generate a migration after changing `src/db/schema.ts` |
-| `pnpm check:secrets` | Scan committable files for private files and credentials |
+| `pnpm check:secrets` | Scan committable files for private files and credentials (`--history`: every commit) |
 | `pnpm telegram:whoami` | Print the Telegram user ID of whoever messages the bot |
 | `pnpm schedule:preview [days]` | Show upcoming publication times and the posts assigned to them |
 | `pnpm x:verify` | Check the X credentials (one paid request, about $0.01) |
+| `pnpm db:backup` | Consistent, verified backup of the database (safe while running) |
+| `pnpm healthcheck` | Exit code 0 if the agent is running |
 | `pnpm ai:ideas [count]` | Generate post ideas from your profile (OpenAI) |
 | `pnpm ai:draft IDEA_ID` | Write, check and review a draft for an idea (OpenAI) |
 
@@ -265,29 +279,21 @@ drizzle/        generated SQL migrations
 prompts/        generic prompt templates
 config/         example behaviour config
 examples/       fictional demo editorial profile
-scripts/        setup and maintenance scripts
-tests/          integration tests and fixtures
+scripts/        setup, maintenance and diagnostic scripts
+tests/          integration tests, contract tests and fixtures
+docs/           deployment, configuration, operations, troubleshooting, security
+deploy/         systemd unit (Dockerfile and compose.yaml are at the root)
 local/          your private data (gitignored)
 ```
 
 ## Security
 
-**Never committed:** `.env`, everything in `local/` (config, profile, database, backups), any `*.db`/`*.sqlite` file, and logs. The `.gitignore` covers these. Run `pnpm check:secrets` before every commit as a second line of defence. It scans every committable file for private paths, credential patterns and the actual values from your `.env`.
+- **Never committed:** `.env`, everything in `local/` (config, profile, database, backups), databases and logs.
+- **Before every commit:** run `pnpm check:secrets`.
+- **Before publishing the repository:** run `pnpm check:secrets --history`.
+- **If a credential is exposed:** revoke and rotate it first.
 
-**If a credential is exposed** (committed, pasted, logged), revoke it first. Rewriting git history does not help once something has been pushed or cloned.
-
-| Credential | How to rotate |
-|---|---|
-| Telegram bot token | In @BotFather: `/revoke`, select the bot, then put the new token in `.env` |
-| OpenAI API key | OpenAI dashboard > API keys: revoke the key, create a new one |
-| X API key/secret, access token/secret | X Developer Console > your app > Keys and tokens: regenerate, then update `.env` |
-
-Then restart the agent.
-
-**Data sent to third parties:**
-- OpenAI receives your editorial profile and drafts when generating posts.
-- X receives the posts you publish.
-- Telegram carries your conversations with the bot.
+[docs/security.md](docs/security.md) covers rotation steps, the data sent to Telegram, X and OpenAI, and the impact of each kind of leak. To report a vulnerability, see [SECURITY.md](SECURITY.md).
 
 ## X API costs
 

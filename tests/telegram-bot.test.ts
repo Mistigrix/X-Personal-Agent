@@ -282,3 +282,14 @@ describe('publication decisions from alerts', () => {
     expect(postState(bot, publicId).status).toBe('failed');
   });
 });
+
+describe('/stats', () => {
+  it('summarizes activity with an estimate disclaimer', async () => {
+    const bot = harness();
+    await bot.send('/stats');
+    const text = String(bot.lastReply().payload.text);
+    expect(text).toContain('<b>Last 7 days</b>');
+    expect(text).toContain('<b>Last 30 days</b>');
+    expect(text).toContain('estimates from the prices in your config');
+  });
+});

@@ -1,0 +1,34 @@
+# Production deployment: docker compose up -d --build
+# Prerequisites: .env and local/ created with `pnpm init:local` and filled in (see README).
+services:
+  agent:
+    build: .
+    image: x-personal-agent:local
+    restart: unless-stopped
+    # Secrets and deployment settings. Values set below take precedence.
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      LOG_FORMAT: json
+      APP_CONFIG_PATH: ./local/agent.yaml
+      DATABASE_PATH: ./local/data/agent.db
+    volumes:
+      - ./local:/app/local
+    # Run with your user's IDs so files in ./local stay yours:
+    #   AGENT_UID=$(id -u) AGENT_GID=$(id -g) docker compose up -d
+    # (or put AGENT_UID/AGENT_GID in .env; plain UID is read-only in most shells)
+    user: "${AGENT_UID:-1000}:${AGENT_GID:-1000}"
+    # Time for an in-flight publication to record its outcome on shutdown.
+    stop_grace_period: 40s
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"

@@ -7,6 +7,7 @@ import type { MessageEntity, Update, UserFromGetMe } from 'grammy/types';
 import { createBot } from '../../src/integrations/telegram/bot.ts';
 import type { ViewContext } from '../../src/integrations/telegram/views.ts';
 import type { QueueService } from '../../src/services/queue-service.ts';
+import { createStatsService } from '../../src/services/stats-service.ts';
 import { fakeTelegramToken } from './fixtures.ts';
 import { createTestServices, silentLogger, type TestServices } from './services.ts';
 
@@ -73,6 +74,11 @@ export function createTelegramHarness(
     scheduler: services.scheduler,
     publisher: services.publisher,
     review: services.review,
+    stats: createStatsService({
+      db: services.db,
+      clock: services.clock,
+      prices: { xPostUsd: 0.015, xPostWithUrlUsd: 0.2 },
+    }),
     editorial: options.withoutAi ? null : services.editorial,
     background: services.background,
     view: TEST_VIEW,

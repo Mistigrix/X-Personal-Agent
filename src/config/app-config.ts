@@ -175,6 +175,12 @@ const editorialSchema = z.strictObject({
     .prefault({}),
 });
 
+/** Prices used only for the estimates shown by /stats (they change: check docs.x.com). */
+const costsSchema = z.strictObject({
+  xPostUsd: z.number().min(0).default(0.015),
+  xPostWithUrlUsd: z.number().min(0).default(0.2),
+});
+
 const pathsSchema = z.strictObject({
   profileDir: z.string().trim().min(1).default('./local/profile'),
   promptsDir: z.string().trim().min(1).default('./prompts'),
@@ -191,6 +197,7 @@ export const appConfigSchema = z.strictObject({
   telegram: telegramSchema.prefault({}),
   ai: aiSchema,
   editorial: editorialSchema.prefault({}),
+  costs: costsSchema.prefault({}),
   paths: pathsSchema.prefault({}),
 });
 
