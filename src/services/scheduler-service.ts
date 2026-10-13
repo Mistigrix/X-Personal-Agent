@@ -33,6 +33,8 @@ export interface SchedulerService {
   rescheduleOverdue(): RescheduledPost[];
   /** Publication slots in the next `days` local days (taken or not). */
   upcoming(days: number): Slot[];
+  /** Number of free publication slots in the next `days` local days. */
+  freeSlotCount(days: number): number;
   isPaused(): boolean;
   /** Pauses automatic publication. Returns false if it was already paused. */
   pause(): boolean;
@@ -105,6 +107,14 @@ export function createSchedulerService(deps: {
 
     upcoming(days) {
       return [...upcomingSlots(clock.now(), rules, scheduleSalt(db), days)];
+    },
+
+    freeSlotCount(days) {
+      const now = clock.now();
+      const taken = takenSlotKeys(db, new Date(now.getTime() - DAY_MS));
+      return [...upcomingSlots(now, rules, scheduleSalt(db), days)].filter(
+        (slot) => !taken.has(slot.key),
+      ).length;
     },
 
     isPaused: () => getSetting(db, 'publication_paused') ?? false,

@@ -270,3 +270,25 @@ export function setCardMessage(
     .where(eq(posts.id, id))
     .run();
 }
+
+/** AI posts in a status, oldest first (e.g. drafts waiting for review). */
+export function listAiPosts(db: DbExecutor, status: PostStatus, limit: number): PostRecord[] {
+  return db
+    .select({ post: posts, version: postVersions })
+    .from(posts)
+    .innerJoin(postVersions, currentVersionJoin)
+    .where(and(eq(posts.source, 'ai'), eq(posts.status, status)))
+    .orderBy(asc(posts.createdAt), asc(posts.id))
+    .limit(limit)
+    .all();
+}
+
+export function countAiPosts(db: DbExecutor, status: PostStatus): number {
+  return (
+    db
+      .select({ total: count() })
+      .from(posts)
+      .where(and(eq(posts.source, 'ai'), eq(posts.status, status)))
+      .get()?.total ?? 0
+  );
+}

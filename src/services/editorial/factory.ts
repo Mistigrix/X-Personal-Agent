@@ -1,5 +1,7 @@
+import type { AppConfig } from '../../config/app-config.ts';
 import type { StartupConfig } from '../../config/load.ts';
 import type { AppDatabase } from '../../db/client.ts';
+import type { DraftRules } from '../../domain/editorial/checks.ts';
 import { buildProfileContext } from '../../domain/editorial/profile-context.ts';
 import type { LlmClient } from '../../integrations/openai/llm-client.ts';
 import { createOpenAiClient } from '../../integrations/openai/openai-client.ts';
@@ -16,6 +18,8 @@ export function createEditorialServiceFromConfig(deps: {
   logger: Logger;
   /** Replaces the OpenAI client (tests). */
   llm?: LlmClient;
+  /** Aborted on shutdown to cancel model requests in progress. */
+  signal?: AbortSignal;
 }): EditorialService | null {
   const { env, config, profile, paths } = deps.startup;
   if (!config.ai.enabled || profile === null) return null;
@@ -30,7 +34,7 @@ export function createEditorialServiceFromConfig(deps: {
       reasoningEffort: config.ai.reasoningEffort,
       timeoutMs: config.ai.requestTimeoutSeconds * 1000,
     });
-  const { editorial, publishing } = config;
+  const { editorial } = config;
 
   return createEditorialService({
     db: deps.db,
@@ -42,6 +46,7 @@ export function createEditorialServiceFromConfig(deps: {
     profile: buildProfileContext(profile.sections),
     clock: deps.clock,
     logger: deps.logger,
+    ...(deps.signal ? { signal: deps.signal } : {}),
     settings: {
       ideasPerRequest: config.ai.ideasPerRequest,
       maxRegenerations: config.ai.maxRegenerations,
@@ -51,15 +56,21 @@ export function createEditorialServiceFromConfig(deps: {
       languageGuidance: editorial.languages.guidance,
       lookbackPosts: editorial.checks.lookbackPosts,
       topicCooldownDays: editorial.checks.topicCooldownDays,
-      draftRules: {
-        text: { maxWeightedLength: publishing.maxWeightedLength, urlPolicy: publishing.urlPolicy },
-        bannedPhrases: editorial.bannedPhrases,
-        maxHashtags: editorial.hashtags.max,
-        maxEmojis: editorial.emojis.max,
-        allowedLanguages: editorial.languages.allowed,
-        avoidTopics: editorial.topics.avoid,
-        nearDuplicateThreshold: editorial.checks.nearDuplicateThreshold,
-      },
+      draftRules: draftRulesFromConfig(config),
     },
   });
+}
+
+/** Quality rules for AI drafts (also applied, as warnings, to the author's edits). */
+export function draftRulesFromConfig(config: AppConfig): DraftRules {
+  const { editorial, publishing } = config;
+  return {
+    text: { maxWeightedLength: publishing.maxWeightedLength, urlPolicy: publishing.urlPolicy },
+    bannedPhrases: editorial.bannedPhrases,
+    maxHashtags: editorial.hashtags.max,
+    maxEmojis: editorial.emojis.max,
+    allowedLanguages: editorial.languages.allowed,
+    avoidTopics: editorial.topics.avoid,
+    nearDuplicateThreshold: editorial.checks.nearDuplicateThreshold,
+  };
 }

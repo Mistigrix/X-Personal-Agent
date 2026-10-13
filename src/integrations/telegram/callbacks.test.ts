@@ -26,3 +26,17 @@ describe('callback payloads', () => {
     expect(decodeCallback(data)).toBeNull();
   });
 });
+
+describe('review and idea payloads', () => {
+  it.each(['approve', 'edit', 'regenerate', 'reject'] as const)('round-trips %s', (action) => {
+    const payload = { action, publicId: 'P7K2QX', version: 3 };
+    expect(decodeCallback(encodeCallback(payload))).toEqual(payload);
+  });
+
+  it('encodes idea drafting without a version', () => {
+    expect(encodeCallback({ action: 'draftIdea', ideaId: 'K7Q2ZP' })).toBe('d:K7Q2ZP');
+    expect(decodeCallback('d:K7Q2ZP')).toEqual({ action: 'draftIdea', ideaId: 'K7Q2ZP' });
+    expect(decodeCallback('d:K7Q2ZP:1')).toBeNull();
+    expect(decodeCallback('a:P7K2QX')).toBeNull();
+  });
+});

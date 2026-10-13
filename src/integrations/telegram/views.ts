@@ -8,6 +8,7 @@ import type { PostStatus } from '../../domain/post.ts';
 import type { PublishMode } from '../../domain/publication.ts';
 import type { Slot } from '../../domain/scheduling.ts';
 import type { TextAnalysis, TextError, TextWarning } from '../../domain/text.ts';
+import type { GenerateIdeasResult } from '../../services/editorial/editorial-service.ts';
 import type { AgentEvent, EventPost } from '../../services/notifier.ts';
 import type { MarkPublishedResult, RetryResult } from '../../services/publisher-service.ts';
 import type {
@@ -16,11 +17,19 @@ import type {
   PostView,
   QueueSummary,
 } from '../../services/queue-service.ts';
+import type {
+  ApproveResult,
+  EditResult,
+  RejectResult,
+  ReviewCard,
+} from '../../services/review-service.ts';
 import { encodeCallback } from './callbacks.ts';
 
 export interface View {
   text: string;
   keyboard?: InlineKeyboard;
+  /** Asks Telegram to open a reply to this message (used by the edit flow). */
+  forceReply?: { placeholder: string };
 }
 
 export interface ViewContext {
@@ -99,6 +108,8 @@ function availabilityNote(context: ViewContext): string[] {
 }
 
 const COMMANDS_HELP = [
+  '/ideas: propose AI post ideas (you approve every post)',
+  '/drafts: AI drafts waiting for your review',
   '/queue: list queued posts',
   '/cancel ID: cancel a queued post',
   '/status: mode, pause state and next publication',
@@ -114,7 +125,7 @@ export function welcomeView(context: ViewContext): View {
       '👋 <b>Your X posting agent</b>',
       '',
       'Send me any text and it becomes a post on X, published <b>exactly as written</b> in one of your publication windows.',
-      'AI-drafted posts (coming later) will always need your explicit approval.',
+      'AI-drafted posts (/ideas) are never published without your explicit approval of their exact text.',
       '',
       modeLine(context),
       ...availabilityNote(context),
@@ -327,6 +338,7 @@ export function statusView(summary: QueueSummary, context: ViewContext, paused: 
     `Scheduled: ${count('scheduled')}`,
     `Awaiting your confirmation: ${count('pending_confirmation')}`,
   ];
+  if (count('draft') > 0) lines.push(`AI drafts to review: ${count('draft')} (/drafts)`);
   if (count('uncertain') > 0) lines.push(`⚠️ Outcome uncertain: ${count('uncertain')}`);
   if (count('failed') > 0) lines.push(`❌ Failed: ${count('failed')}`);
   lines.push(
@@ -471,6 +483,10 @@ export function eventView(event: AgentEvent, context: ViewContext): View {
           ),
         ].join('\n'),
       };
+    case 'draft_ready':
+      return reviewCardView(event.card, context);
+    case 'editorial_error':
+      return { text: `⚠️ ${escapeHtml(event.message)}` };
   }
 }
 
@@ -536,4 +552,204 @@ export function cancelOutcome(result: CancelResult): { toast: string; card: View
     case 'not_found':
       return { toast: 'This post no longer exists.', card: null };
   }
+}
+
+// ---------------------------------------------------------------------------
+// AI drafts: review cards, decisions, edit flow, ideas
+// ---------------------------------------------------------------------------
+
+const MAX_CARD_WARNINGS = 5;
+
+const CLAIM_LABELS: Record<string, string> = {
+  profile_fact: 'from your facts',
+  profile_opinion: 'from your opinions',
+  general_knowledge: 'general knowledge',
+  unsupported: 'unsupported',
+};
+
+function claimsLine(card: ReviewCard): string[] {
+  if (card.claims.length === 0) return [];
+  const counts = new Map<string, number>();
+  for (const claim of card.claims) counts.set(claim.basis, (counts.get(claim.basis) ?? 0) + 1);
+  const parts = [...counts].map(([basis, count]) => `${count} ${CLAIM_LABELS[basis] ?? basis}`);
+  return [`🔎 Claims: ${parts.join(', ')}`];
+}
+
+function reviewKeyboard(card: ReviewCard): InlineKeyboard {
+  const payload = { publicId: card.publicId, version: card.version };
+  return new InlineKeyboard()
+    .text('✅ Approve', encodeCallback({ action: 'approve', ...payload }))
+    .text('✏️ Edit', encodeCallback({ action: 'edit', ...payload }))
+    .row()
+    .text('🔄 Regenerate', encodeCallback({ action: 'regenerate', ...payload }))
+    .text('❌ Reject', encodeCallback({ action: 'reject', ...payload }));
+}
+
+/** The card the author decides on. Buttons always refer to this exact version. */
+export function reviewCardView(card: ReviewCard, context: ViewContext): View {
+  const evaluation = card.evaluation
+    ? [
+        `📝 Review: voice ${card.evaluation.scores.voice}/5 · value ${card.evaluation.scores.value}/5 · clarity ${card.evaluation.scores.clarity}/5 → ${card.evaluation.recommendation}`,
+      ]
+    : [];
+  const warnings = card.warnings
+    .slice(0, MAX_CARD_WARNINGS)
+    .map((warning) => `⚠️ ${escapeHtml(warning.message)}`);
+  if (card.warnings.length > MAX_CARD_WARNINGS) {
+    warnings.push(`…and ${card.warnings.length - MAX_CARD_WARNINGS} more warning(s).`);
+  }
+  return {
+    text: [
+      `🤖 <b>AI draft ${card.publicId}</b> · v${card.version}${card.language ? ` · ${escapeHtml(card.language)}` : ''} · ${card.weightedLength}/${context.maxWeightedLength} characters`,
+      ...(card.idea
+        ? [`💡 <i>${escapeHtml(card.idea.topic)}: ${escapeHtml(card.idea.angle)}</i>`]
+        : []),
+      ...(card.origin === 'user_edited' ? ['✏️ Your edited version.'] : []),
+      quote(card.text),
+      ...evaluation,
+      ...warnings,
+      ...claimsLine(card),
+      'Nothing is published until you approve this exact text.',
+    ].join('\n'),
+    keyboard: reviewKeyboard(card),
+  };
+}
+
+type Outcome = { toast: string; card: View | null };
+
+export function approveOutcome(result: ApproveResult, context: ViewContext): Outcome {
+  switch (result.kind) {
+    case 'approved': {
+      const when = formatLocalTime(result.slot.at, context.timezone);
+      return {
+        toast: `Approved, scheduled for ${when}`,
+        card: {
+          text: [
+            `✅ <b>Approved ${result.card.publicId} v${result.card.version}</b>, scheduled for ${when} (${escapeHtml(context.timezone)}).`,
+            quote(result.card.text),
+            `To cancel: /cancel ${result.card.publicId}`,
+          ].join('\n'),
+        },
+      };
+    }
+    case 'already_approved':
+      return { toast: 'Already approved', card: null };
+    case 'already_rejected':
+      return { toast: 'This version was rejected', card: null };
+    case 'outdated':
+      return { toast: 'This card is outdated: a newer version exists.', card: null };
+    case 'not_reviewable':
+      return { toast: `This post is ${STATUS_LABELS[result.card.status]}.`, card: null };
+    case 'invalid':
+      return { toast: 'This text cannot be published as is.', card: null };
+    case 'queue_full':
+      return { toast: 'No free publication slot.', card: null };
+    case 'not_found':
+      return { toast: 'This post no longer exists.', card: null };
+  }
+}
+
+export function rejectOutcome(result: RejectResult): Outcome {
+  switch (result.kind) {
+    case 'rejected':
+      return {
+        toast: 'Rejected',
+        card: { text: `❌ <b>Rejected ${result.card.publicId}.</b> It will not be published.` },
+      };
+    case 'already_rejected':
+      return { toast: 'Already rejected', card: null };
+    case 'outdated':
+      return { toast: 'This card is outdated: a newer version exists.', card: null };
+    case 'not_reviewable':
+      return { toast: `This post is ${STATUS_LABELS[result.card.status]}.`, card: null };
+    case 'not_found':
+      return { toast: 'This post no longer exists.', card: null };
+  }
+}
+
+const EDIT_PROMPT = /Editing ([A-Z0-9]{6}) v(\d+)\./;
+
+/** Prompt answered with Telegram's reply feature; it names the post and version it edits. */
+export function editPromptView(card: ReviewCard): View {
+  return {
+    text: [
+      `✏️ Editing ${card.publicId} v${card.version}. Reply to this message with the complete new text.`,
+      'Your text is used exactly as written. Tap the current text to copy it:',
+      `<pre>${escapeHtml(card.text)}</pre>`,
+    ].join('\n'),
+    forceReply: { placeholder: 'New text…' },
+  };
+}
+
+/** The post and version an edit prompt refers to, read from the replied-to message. */
+export function parseEditPrompt(text: string): { publicId: string; version: number } | null {
+  const match = EDIT_PROMPT.exec(text);
+  return match?.[1] && match[2] ? { publicId: match[1], version: Number(match[2]) } : null;
+}
+
+export function editResultView(result: EditResult, context: ViewContext): View {
+  switch (result.kind) {
+    case 'edited':
+      return reviewCardView(result.card, context);
+    case 'invalid':
+      return invalidPostView(result.analysis);
+    case 'unchanged':
+      return { text: 'The text is unchanged: nothing to do.' };
+    case 'outdated':
+      return {
+        text: `${result.card.publicId} changed since that prompt. Use /drafts to see its current version.`,
+      };
+    case 'not_editable':
+      return {
+        text: `${result.card.publicId} can no longer be edited: it is ${STATUS_LABELS[result.card.status]}.`,
+      };
+    case 'not_found':
+      return { text: 'This post no longer exists.' };
+  }
+}
+
+export function regeneratingView(card: ReviewCard): View {
+  return { text: `🔄 <b>Writing a new version of ${card.publicId}…</b>\n${quote(card.text)}` };
+}
+
+export function ideasView(result: Extract<GenerateIdeasResult, { kind: 'ok' }>): View {
+  if (result.ideas.length === 0) {
+    return {
+      text: '💡 No new idea this time (all were too close to recent topics). Try again later.',
+    };
+  }
+  const keyboard = new InlineKeyboard();
+  const lines = [
+    '💡 <b>Ideas</b>: pick one to draft. You review every draft before anything is published.',
+  ];
+  result.ideas.forEach((idea, index) => {
+    lines.push(
+      '',
+      `<b>${index + 1}. ${escapeHtml(idea.topic)}</b> · ${escapeHtml(idea.language)} · ${escapeHtml(idea.category)}`,
+      escapeHtml(idea.angle),
+    );
+    keyboard
+      .text(`✍️ Draft ${index + 1}`, encodeCallback({ action: 'draftIdea', ideaId: idea.publicId }))
+      .row();
+  });
+  return { text: lines.join('\n'), keyboard };
+}
+
+export function generationFailedView(reasons: readonly string[]): View {
+  return {
+    text: [
+      '⚠️ <b>No draft passed the checks.</b> Last problems:',
+      ...reasons.map((reason) => `• ${escapeHtml(reason)}`),
+    ].join('\n'),
+  };
+}
+
+export function aiDisabledView(): View {
+  return {
+    text: 'AI drafting is disabled. Set ai.enabled: true in your config and OPENAI_API_KEY in .env.',
+  };
+}
+
+export function noDraftsView(): View {
+  return { text: '📭 No AI draft is waiting for review. Use /ideas to get some.' };
 }

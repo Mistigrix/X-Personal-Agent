@@ -69,6 +69,7 @@ describe('agent tasks', () => {
       notifications: s.notifications,
       notifier: s.notifier,
       logger: silentLogger(),
+      background: s.background,
       onLeaseLost: () => {
         leaseLost += 1;
       },

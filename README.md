@@ -7,7 +7,7 @@ A self-hosted agent that keeps your X (Twitter) account active without making it
 
 It runs as a single Node.js process with a SQLite database. You configure it entirely through local files, without modifying source code.
 
-> **Status: early development.** Milestones 1–4 of 6 are done: configuration, the Telegram bot and personal-post queue, publication to X (retries, uncertain-outcome reconciliation, dry run), and the AI editorial engine (ideas and drafts, available from the command line). Reviewing AI drafts in Telegram comes next. See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the roadmap.
+> **Status: early development.** Milestones 1–5 of 6 are done: configuration, the Telegram bot and personal-post queue, publication to X (retries, uncertain-outcome reconciliation, dry run), the AI editorial engine, and the review of AI drafts in Telegram. Production hardening and the public release come next. See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the roadmap.
 
 ## Safety model
 
@@ -76,6 +76,8 @@ Tap **✅ Queue** to queue it or **🗑 Discard** to drop it. The text is stored
 
 | Command | Description |
 |---|---|
+| `/ideas [n]` | Propose AI post ideas, each with a "Draft" button |
+| `/drafts` | Show the AI drafts waiting for your review |
 | `/queue` | List queued posts with their IDs and publication times |
 | `/cancel ID` | Cancel a queued post (frees its slot) |
 | `/status` | Mode (dry run or live), pause state, counts, next publication |
@@ -96,6 +98,23 @@ To change a queued post, `/cancel` it and send the corrected text. Edits to mess
 | Temporary error (X unreachable, rate limit) | Retried automatically with increasing delays (`publishing.maxRetries`), silently. |
 | ❌ Failed (invalid text, credentials, credits) | Not retried. Buttons: **Publish again**, **Cancel**. |
 | ⚠️ Uncertain (timeout, X server error, interrupted shutdown) | Never resent automatically. The agent looks for the post on your timeline. If found, it confirms. If not, it asks you: **Publish again**, **It is on X**, **Cancel**. |
+
+**Reviewing AI drafts:** each draft arrives as a card. The card shows:
+- the exact text, its length as counted by X, and its language
+- the idea it came from
+- the automatic review and any warnings
+- a summary of its claims (from your facts, your opinions, general knowledge)
+
+| Button | Effect |
+|---|---|
+| ✅ Approve | Records your approval of **this exact version** (with its content hash and your Telegram ID) and schedules it in the next free slot. |
+| ✏️ Edit | Sends you the current text. **Reply** to that message with your full text: it becomes a new version, stored exactly as written, with its own card. It needs a new approval. |
+| 🔄 Regenerate | Writes a new version in the background. The old card's buttons stop working. |
+| ❌ Reject | The draft is never published. |
+
+Buttons always refer to the version shown. Pressing a button on an older card has no effect, and so does pressing one twice. Any change to the text after approval (edit or regeneration) sends the post back to review.
+
+**Daily drafts:** with `ai.autoGenerate.enabled`, once a day after `ai.autoGenerate.at` (local time) the agent prepares drafts. It only prepares as many as there are free slots in the next two days, and never more than `maxPendingDrafts` waiting for review. The drafts arrive as cards; nothing is scheduled until you approve.
 
 ## Publishing to X
 
@@ -150,7 +169,7 @@ The editorial engine writes posts **from your profile only**:
    - **claims not supported by your profile**
 4. A second model call reviews the draft as an editor: claims, voice, value and clarity. This review is advisory, and it can also trigger a revision.
 
-Drafts are stored with their warnings, review and claims. **A draft is never published without your explicit approval of its exact text.** This is enforced at publication time and cannot be configured away. Approving drafts in Telegram arrives in Milestone 5. For now, try the engine from the command line:
+Drafts are stored with their warnings, review and claims. **A draft is never published without your explicit approval of its exact text.** This is enforced at publication time and cannot be configured away. Review drafts in Telegram (see [Using the bot](#using-the-bot)), or try the engine from the command line:
 
 ```bash
 pnpm ai:ideas 3

@@ -8,6 +8,7 @@ import { GrammyError } from 'grammy';
 import { CONFIG_ERROR_EXIT_CODE, renderConfigIssues } from './config/issues.ts';
 import { loadStartupConfig, toDisplayPath } from './config/load.ts';
 import { migrateDatabase, openDatabase } from './db/client.ts';
+import { listRecentTexts } from './db/repositories/posts.ts';
 import { ALLOWED_UPDATES, BOT_COMMANDS, createBot } from './integrations/telegram/bot.ts';
 import { createTelegramNotifier } from './integrations/telegram/notifier.ts';
 import type { ViewContext } from './integrations/telegram/views.ts';
@@ -16,13 +17,21 @@ import { createLiveXClient, XRequestError } from './integrations/x/live-client.t
 import type { XAccount, XClient } from './integrations/x/x-client.ts';
 import { createAgentTasks } from './jobs/agent-tasks.ts';
 import { startTicker } from './jobs/ticker.ts';
+import { createDailyDrafts } from './services/daily-drafts.ts';
+import { RECENT_STATUSES } from './services/editorial/editorial-service.ts';
+import {
+  createEditorialServiceFromConfig,
+  draftRulesFromConfig,
+} from './services/editorial/factory.ts';
 import { createInstanceLease, type InstanceLease } from './services/instance-lease.ts';
 import { createOutcomeNotifications } from './services/outcome-notifications.ts';
 import { createPublisherService } from './services/publisher-service.ts';
 import { createQueueService } from './services/queue-service.ts';
 import { createReconcilerService } from './services/reconciler-service.ts';
+import { createReviewService } from './services/review-service.ts';
 import { createSchedulerService } from './services/scheduler-service.ts';
 import { createXAccountResolver, credentialFingerprint } from './services/x-account.ts';
+import { createBackgroundTasks } from './shared/background.ts';
 import { systemClock } from './shared/clock.ts';
 import { readEnvironment } from './shared/dotenv.ts';
 import { createLogger, type Logger } from './shared/logger.ts';
@@ -35,6 +44,8 @@ const TICK_INTERVAL_MS = 30_000;
 /** A lease not renewed for this long is considered abandoned (crashed instance). */
 const LEASE_TTL_MS = 3 * TICK_INTERVAL_MS;
 const LEASE_POLL_MS = 5_000;
+/** Days of free publication slots the daily AI drafts may fill. */
+const DAILY_DRAFTS_LOOKAHEAD_DAYS = 2;
 
 async function main(): Promise<number> {
   const startup = loadStartupConfig({ root, env: readEnvironment(root) });
@@ -143,6 +154,26 @@ async function main(): Promise<number> {
       );
     }
 
+    const background = createBackgroundTasks(logger);
+    const editorial = createEditorialServiceFromConfig({
+      startup: startup.value,
+      db,
+      clock,
+      logger,
+      signal: background.signal,
+    });
+    const review = createReviewService({
+      db,
+      scheduler,
+      clock,
+      draftRules: draftRulesFromConfig(config),
+      recentTexts: (executor) =>
+        listRecentTexts(executor, RECENT_STATUSES, config.editorial.checks.lookbackPosts),
+    });
+    if (config.ai.enabled && !editorial) {
+      logger.warn('AI drafting is enabled but unavailable (missing OpenAI key or profile).');
+    }
+
     const view: ViewContext = {
       timezone: config.timezone,
       maxWeightedLength: config.publishing.maxWeightedLength,
@@ -155,6 +186,9 @@ async function main(): Promise<number> {
       queue,
       scheduler,
       publisher,
+      review,
+      editorial,
+      background,
       view,
       logger,
     });
@@ -210,6 +244,26 @@ async function main(): Promise<number> {
         notifications: createOutcomeNotifications({ db, notifier, clock }),
         notifier,
         logger,
+        background,
+        ...(editorial && config.ai.autoGenerate.enabled
+          ? {
+              dailyDrafts: createDailyDrafts({
+                db,
+                editorial,
+                review,
+                scheduler,
+                notifier,
+                clock,
+                logger,
+                settings: {
+                  timezone: config.timezone,
+                  at: config.ai.autoGenerate.at,
+                  maxPendingDrafts: config.ai.autoGenerate.maxPendingDrafts,
+                  lookaheadDays: DAILY_DRAFTS_LOOKAHEAD_DAYS,
+                },
+              }),
+            }
+          : {}),
         onLeaseLost: () => reportLeaseLost('publication lease lost'),
       }),
     });
@@ -239,6 +293,8 @@ async function main(): Promise<number> {
     logger.info({ reason }, 'Shutting down');
     // Let an in-flight publication finish recording its outcome before closing.
     await ticker.stop();
+    // Model calls in progress are cancelled: nothing they produce is lost but a draft.
+    await background.stop();
     if (bot.isRunning()) await bot.stop();
     lease.release();
     database.close();

@@ -1,13 +1,17 @@
 /**
  * The work done on every tick, in order: keep the instance lease, move overdue
- * posts, publish the next due post, resolve uncertain outcomes, notify the user.
+ * posts, publish the next due post, resolve uncertain outcomes, notify the user,
+ * and start the daily AI drafts when due (in the background: model calls never
+ * delay publication).
  */
+import type { DailyDrafts } from '../services/daily-drafts.ts';
 import type { InstanceLease } from '../services/instance-lease.ts';
 import type { Notifier } from '../services/notifier.ts';
 import type { OutcomeNotifications } from '../services/outcome-notifications.ts';
 import type { PublisherService } from '../services/publisher-service.ts';
 import type { ReconcilerService } from '../services/reconciler-service.ts';
 import type { SchedulerService } from '../services/scheduler-service.ts';
+import type { BackgroundTasks } from '../shared/background.ts';
 import type { Logger } from '../shared/logger.ts';
 import type { TickerTask } from './ticker.ts';
 
@@ -19,6 +23,9 @@ export function createAgentTasks(deps: {
   notifications: OutcomeNotifications;
   notifier: Notifier;
   logger: Logger;
+  background: BackgroundTasks;
+  /** Absent when AI drafting or its daily generation is disabled. */
+  dailyDrafts?: DailyDrafts;
   /** Called once if another instance took over the lease; the agent must stop. */
   onLeaseLost: () => void;
 }): TickerTask[] {
@@ -55,5 +62,13 @@ export function createAgentTasks(deps: {
     whileLeaseHeld('publish', () => publisher.publishNextDue()),
     whileLeaseHeld('reconcile', () => reconciler.reconcile()),
     whileLeaseHeld('notify', () => notifications.dispatch()),
+    whileLeaseHeld('daily-drafts', () => {
+      const { dailyDrafts } = deps;
+      if (!dailyDrafts) return;
+      deps.background.run('daily-drafts', async () => {
+        const outcome = await dailyDrafts.runIfDue();
+        if (outcome.kind !== 'skipped') logger.info({ outcome }, 'Daily drafts job finished');
+      });
+    }),
   ];
 }

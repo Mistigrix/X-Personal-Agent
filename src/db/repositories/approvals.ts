@@ -11,3 +11,10 @@ export function findApprovalForVersion(
 ): ApprovalRow | undefined {
   return db.select().from(approvals).where(eq(approvals.postVersionId, postVersionId)).get();
 }
+
+export function insertApproval(
+  db: DbExecutor,
+  input: Omit<typeof approvals.$inferInsert, 'id'>,
+): ApprovalRow {
+  return db.insert(approvals).values(input).returning().get();
+}

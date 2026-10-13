@@ -4,6 +4,7 @@
 import OpenAI, {
   APIConnectionTimeoutError,
   APIError,
+  APIUserAbortError,
   AuthenticationError,
   RateLimitError,
 } from 'openai';
@@ -15,6 +16,8 @@ export type ReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | '
 
 function toLlmError(error: unknown): LlmError {
   if (error instanceof LlmError) return error;
+  if (error instanceof APIUserAbortError)
+    return new LlmError('aborted', 'The request was cancelled.');
   if (error instanceof AuthenticationError) {
     return new LlmError('auth', 'OpenAI rejected the API key (401). Check OPENAI_API_KEY in .env.');
   }
@@ -60,17 +63,22 @@ export function createOpenAiClient(options: {
     async generate(request) {
       let response: Awaited<ReturnType<typeof client.responses.parse>>;
       try {
-        response = await client.responses.parse({
-          model: options.models[request.task],
-          instructions: request.instructions,
-          input: request.input,
-          text: { format: zodTextFormat(request.schema as z.ZodType<object>, request.schemaName) },
-          reasoning: { effort: options.reasoningEffort },
-          // Drafts and the editorial profile are not kept by OpenAI for later retrieval.
-          store: false,
-          // Same prefix (template + profile) per task: helps OpenAI reuse its prompt cache.
-          prompt_cache_key: `x-personal-agent-${request.task}`,
-        });
+        response = await client.responses.parse(
+          {
+            model: options.models[request.task],
+            instructions: request.instructions,
+            input: request.input,
+            text: {
+              format: zodTextFormat(request.schema as z.ZodType<object>, request.schemaName),
+            },
+            reasoning: { effort: options.reasoningEffort },
+            // Drafts and the editorial profile are not kept by OpenAI for later retrieval.
+            store: false,
+            // Same prefix (template + profile) per task: helps OpenAI reuse its prompt cache.
+            prompt_cache_key: `x-personal-agent-${request.task}`,
+          },
+          request.signal ? { signal: request.signal } : undefined,
+        );
       } catch (error) {
         throw toLlmError(error);
       }

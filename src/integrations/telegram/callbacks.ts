@@ -1,10 +1,12 @@
 /**
- * Inline-button payloads: `<action>:<publicId>:<version>` (Telegram allows 64 bytes).
- * The version makes every button refer to the exact content it was shown with.
+ * Inline-button payloads (Telegram allows 64 bytes):
+ * - `<action>:<publicId>:<version>` for buttons acting on a post. The version
+ *   makes every button refer to the exact content it was shown with.
+ * - `d:<ideaId>` to draft an idea.
  */
 import { parsePublicId } from '../../shared/ids.ts';
 
-const ACTIONS = {
+const POST_ACTIONS = {
   /** Personal post preview. */
   queue: 'q',
   discard: 'x',
@@ -12,32 +14,44 @@ const ACTIONS = {
   retry: 'r',
   markPublished: 'm',
   cancel: 'c',
+  /** AI draft review. */
+  approve: 'a',
+  edit: 'e',
+  regenerate: 'g',
+  reject: 'j',
 } as const;
 
-export type CallbackAction = keyof typeof ACTIONS;
+const DRAFT_IDEA_CODE = 'd';
 
-export interface CallbackPayload {
-  action: CallbackAction;
-  publicId: string;
-  version: number;
-}
+export type PostAction = keyof typeof POST_ACTIONS;
 
-const ACTION_BY_CODE = new Map<string, CallbackAction>(
-  Object.entries(ACTIONS).map(([action, code]) => [code, action as CallbackAction]),
+export type CallbackPayload =
+  | { action: PostAction; publicId: string; version: number }
+  | { action: 'draftIdea'; ideaId: string };
+
+const ACTION_BY_CODE = new Map<string, PostAction>(
+  Object.entries(POST_ACTIONS).map(([action, code]) => [code, action as PostAction]),
 );
 
 export function encodeCallback(payload: CallbackPayload): string {
-  return `${ACTIONS[payload.action]}:${payload.publicId}:${payload.version}`;
+  return payload.action === 'draftIdea'
+    ? `${DRAFT_IDEA_CODE}:${payload.ideaId}`
+    : `${POST_ACTIONS[payload.action]}:${payload.publicId}:${payload.version}`;
 }
 
 export function decodeCallback(data: string): CallbackPayload | null {
   const [code, rawId, rawVersion, ...rest] = data.split(':');
-  if (rest.length > 0 || code === undefined || rawId === undefined || rawVersion === undefined) {
-    return null;
+  if (rest.length > 0 || code === undefined || rawId === undefined) return null;
+  const id = parsePublicId(rawId);
+  if (!id) return null;
+
+  if (code === DRAFT_IDEA_CODE) {
+    return rawVersion === undefined ? { action: 'draftIdea', ideaId: id } : null;
   }
   const action = ACTION_BY_CODE.get(code);
-  const publicId = parsePublicId(rawId);
   const version = Number(rawVersion);
-  if (!action || !publicId || !Number.isSafeInteger(version) || version < 1) return null;
-  return { action, publicId, version };
+  if (!action || rawVersion === undefined || !Number.isSafeInteger(version) || version < 1) {
+    return null;
+  }
+  return { action, publicId: id, version };
 }

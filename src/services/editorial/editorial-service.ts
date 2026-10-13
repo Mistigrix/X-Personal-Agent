@@ -133,7 +133,7 @@ export interface EditorialService {
 }
 
 /** Posts whose text new drafts must not repeat. */
-const RECENT_STATUSES: readonly PostStatus[] = [
+export const RECENT_STATUSES: readonly PostStatus[] = [
   'draft',
   'pending_confirmation',
   'scheduled',
@@ -165,6 +165,8 @@ export function createEditorialService(deps: {
   clock: Clock;
   logger: Logger;
   settings: EditorialSettings;
+  /** Aborted on shutdown: cancels model requests in progress. */
+  signal?: AbortSignal;
 }): EditorialService {
   const { db, llm, prompts, clock, logger, settings } = deps;
   const rules = settings.draftRules;
@@ -278,6 +280,7 @@ export function createEditorialService(deps: {
         input: 'Write the post now.',
         schema: draftOutputSchema,
         schemaName: 'post_draft',
+        ...(deps.signal ? { signal: deps.signal } : {}),
       });
       usage = addUsage(usage, generated.usage);
 
@@ -324,6 +327,7 @@ export function createEditorialService(deps: {
           input: 'Evaluate the draft now.',
           schema: evaluationOutputSchema,
           schemaName: 'post_evaluation',
+          ...(deps.signal ? { signal: deps.signal } : {}),
         });
         usage = addUsage(usage, evaluated.usage);
         generation.models = { drafting: generated.model, evaluation: evaluated.model };
@@ -435,6 +439,7 @@ export function createEditorialService(deps: {
             input: `Propose ${count} post ideas now.`,
             schema: ideasOutputSchema,
             schemaName: 'post_ideas',
+            ...(deps.signal ? { signal: deps.signal } : {}),
           });
 
           const cooldownSince = now.getTime() - settings.topicCooldownDays * DAY_MS;

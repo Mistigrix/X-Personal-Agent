@@ -1,4 +1,5 @@
 import type { PublishMode } from '../domain/publication.ts';
+import type { ReviewCard } from './review-service.ts';
 
 /** The post an event is about, with the version shown to the user (for buttons). */
 export interface EventPost {
@@ -21,7 +22,10 @@ export type AgentEvent =
       /** Set when the post was rescheduled automatically (reconcile.autoRetryIfNotFound). */
       rescheduledAt: Date | null;
     }
-  | { type: 'rescheduled'; moves: { publicId: string; to: Date }[] };
+  | { type: 'rescheduled'; moves: { publicId: string; to: Date }[] }
+  /** A new AI draft waiting for the author's decision. */
+  | { type: 'draft_ready'; card: ReviewCard }
+  | { type: 'editorial_error'; message: string };
 
 /**
  * Delivers events to the owner. Implementations must not throw: a delivery

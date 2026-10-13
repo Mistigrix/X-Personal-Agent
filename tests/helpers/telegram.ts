@@ -43,7 +43,14 @@ export interface TelegramHarness extends TestServices {
   bot: Bot;
   calls: ApiCall[];
   /** Sends a text message (commands get their bot_command entity automatically). */
-  send(text: string, from?: { userId?: number; chatType?: 'private' | 'group' }): Promise<void>;
+  send(
+    text: string,
+    from?: {
+      userId?: number;
+      chatType?: 'private' | 'group';
+      replyTo?: { text: string; fromBot: boolean };
+    },
+  ): Promise<void>;
   sendUpdate(update: Omit<Update, 'update_id'>): Promise<void>;
   click(data: string, messageId: number, userId?: number): Promise<void>;
   callsTo(method: string): ApiCall[];
@@ -52,7 +59,10 @@ export interface TelegramHarness extends TestServices {
 }
 
 export function createTelegramHarness(
-  options: Parameters<typeof createTestServices>[0] & { queue?: QueueService } = {},
+  options: Parameters<typeof createTestServices>[0] & {
+    queue?: QueueService;
+    withoutAi?: boolean;
+  } = {},
 ): TelegramHarness {
   const services = createTestServices(options);
   const logger = silentLogger();
@@ -62,6 +72,9 @@ export function createTelegramHarness(
     queue: options.queue ?? services.queue,
     scheduler: services.scheduler,
     publisher: services.publisher,
+    review: services.review,
+    editorial: options.withoutAi ? null : services.editorial,
+    background: services.background,
     view: TEST_VIEW,
     logger,
     botInfo: BOT_INFO,
@@ -125,6 +138,19 @@ export function createTelegramHarness(
           from: user(userId),
           text,
           ...(entities ? { entities } : {}),
+          ...(from.replyTo
+            ? {
+                reply_to_message: {
+                  message_id: 1,
+                  date: 1_760_000_000,
+                  chat: { id: userId, type: 'private', first_name: 'Owner' },
+                  from: from.replyTo.fromBot
+                    ? { id: BOT_INFO.id, is_bot: true, first_name: BOT_INFO.first_name }
+                    : user(userId),
+                  text: from.replyTo.text,
+                },
+              }
+            : {}),
         },
       } as Omit<Update, 'update_id'>);
     },

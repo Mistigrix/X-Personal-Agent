@@ -11,7 +11,7 @@ Last updated: 2026-10-12
 | 2 — Telegram & personal post queue | Done, 2026-10-12 |
 | 3 — X API integration & scheduling | Done, 2026-10-12 |
 | 4 — AI editorial engine | Done, 2026-10-13 |
-| 5 — Telegram approval workflow | Not started |
+| 5 — Telegram approval workflow | Done, 2026-10-13 |
 | 6 — Production hardening & open-source release | Not started |
 
 ### Milestone log
@@ -109,6 +109,30 @@ Last updated: 2026-10-12
   - **Profile changes:** the profile is read at startup, so changes need a restart.
   - **Config:** `ai.requestTimeoutSeconds` added; the reasoning effort list gained `max`.
 - **Not in M4 (M5):** Telegram review cards, `/ideas`, `/drafts`, approvals, the daily automatic generation job.
+
+**M5 (2026-10-13).**
+- **Delivered:**
+  - Review service:
+    - approve: records version, content hash and Telegram user, then schedules in the next free slot. Idempotent.
+    - reject: records the decision.
+    - edit: the author's text stored verbatim as a new `user_edited` version; checks are run but only reported as warnings; approval voided.
+  - Review cards with buttons bound to the version (Approve / Edit / Regenerate / Reject).
+  - Edit flow using a Telegram reply (stateless: the prompt carries ID and version).
+  - Background runner for model calls: deduplicated per key, acknowledgement always sent first, cancelled on shutdown through an `AbortSignal` passed to OpenAI.
+  - `/ideas` with "Draft" buttons, `/drafts`.
+  - Daily drafts job: idempotent per local day via `job_runs`; capped by `maxPendingDrafts` and by free slots in the next two days; failures notified once.
+- **Verification:**
+  - 401 tests pass, including 14 end-to-end Telegram review tests.
+  - An end-to-end test walks the hard rule: approve, edit, regenerate, approve the stale version, approve the current version. Only the exact approved text is published.
+  - A real-process smoke test (scratch database, fake OpenAI, real bot) produced a daily draft and delivered its review card.
+- **Decisions made during M5:**
+  - **Only AI posts use approvals.** Personal posts keep their [Queue] confirmation.
+  - **The author's edits are never blocked by editorial rules.** They are only warned about, except text X would reject.
+  - **Regeneration removes the old card's buttons.** If it fails, the current version's card is sent again.
+  - **Cards sent by the daily job don't record their message ID** (only used for display).
+- **Known limitations:**
+  - Edits are AI-post only; personal posts are changed by cancel and resend.
+  - A daily job interrupted by a restart is not retried the same day.
 
 ---
 

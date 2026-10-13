@@ -15,6 +15,8 @@ export interface LlmRequest<T> {
   /** Root must be an object schema (structured outputs requirement). */
   schema: z.ZodType<T>;
   schemaName: string;
+  /** Cancels the request (e.g. on shutdown). */
+  signal?: AbortSignal;
 }
 
 export interface LlmUsage {
@@ -36,6 +38,7 @@ export type LlmErrorCode =
   | 'refusal'
   | 'incomplete'
   | 'invalid_output'
+  | 'aborted'
   | 'api_error';
 
 export class LlmError extends Error {

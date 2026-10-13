@@ -26,10 +26,10 @@ export function createFakeLlm(): FakeLlm {
         throw new Error(`No scripted answer for ${request.task}`);
       const next = queues[request.task].shift();
       if (next instanceof Error) throw next;
-      const raw =
-        typeof next === 'function'
-          ? (next as (r: LlmRequest<unknown>) => unknown)(request as LlmRequest<unknown>)
-          : next;
+      // Scripted functions may return a promise (to simulate a slow model).
+      const raw = await (typeof next === 'function'
+        ? (next as (r: LlmRequest<unknown>) => unknown)(request as LlmRequest<unknown>)
+        : next);
       return {
         output: request.schema.parse(raw),
         model: `fake-${request.task}`,
