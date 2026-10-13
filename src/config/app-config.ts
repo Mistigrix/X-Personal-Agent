@@ -222,10 +222,12 @@ export function loadAppConfig(filePath: string, displayPath: string): AppConfigR
       issues: [
         {
           source: displayPath,
-          message: missing ? 'file not found' : 'file could not be read',
+          message: missing
+            ? `file not found (looked for ${filePath})`
+            : `file could not be read (${filePath})`,
           hint: missing
-            ? 'Run `pnpm init:local` to create it from config/agent.example.yaml, or set APP_CONFIG_PATH.'
-            : 'Check the file permissions.',
+            ? `In a local checkout, run \`pnpm init:local\`. In Docker or Dokploy, mount your config file at ${filePath} and redeploy. Or point APP_CONFIG_PATH to it. See docs/deployment.md.`
+            : 'Check the file permissions: the agent must be able to read it.',
         },
       ],
     };

@@ -108,7 +108,10 @@ describe('loadAppConfig', () => {
     const result = loadAppConfig('/nonexistent/agent.yaml', 'local/agent.yaml');
     expect(result.ok).toBe(false);
     if (result.ok) return;
+    // The absolute path tells container users exactly where to mount the file.
+    expect(result.issues[0]?.message).toBe('file not found (looked for /nonexistent/agent.yaml)');
     expect(result.issues[0]?.hint).toContain('pnpm init:local');
+    expect(result.issues[0]?.hint).toContain('mount your config file at /nonexistent/agent.yaml');
   });
 });
 

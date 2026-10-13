@@ -60,8 +60,7 @@ export function loadProfile(
 ): ProfileResult {
   const issues: ConfigIssue[] = [];
   const sections = {} as Record<ProfileSection, string | null>;
-  const setupHint =
-    'Run `pnpm init:local` to copy the example profile into local/profile/, then rewrite each file with your own information.';
+  const setupHint = `In a local checkout, run \`pnpm init:local\` and rewrite each copied file. In Docker or Dokploy, mount your profile files in ${directory}/ and redeploy. Or set ai.enabled: false.`;
 
   for (const [name, spec] of Object.entries(PROFILE_SECTIONS) as [
     ProfileSection,
