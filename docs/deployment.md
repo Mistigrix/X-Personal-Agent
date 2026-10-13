@@ -86,6 +86,66 @@ AGENT_UID=$(id -u) AGENT_GID=$(id -g) docker compose up -d --build
 
 Database migrations are applied automatically at startup.
 
+## Dokploy
+
+`pnpm init:local` is a helper for a local checkout; don't run it on Dokploy. Each thing it creates has a Dokploy equivalent:
+
+| `init:local` creates | On Dokploy |
+|---|---|
+| `.env` | the application's **Environment** tab |
+| `local/agent.yaml` | a **File Mount** |
+| `local/profile/*.md` | one **File Mount** per file |
+| `local/data/` (database) | a named **Volume** |
+
+**1. Create an Application**, not a Docker Compose project: in Compose mode Dokploy re-clones the repository on deploy, which would wipe a relative `./local` bind mount.
+- Source: your Git repository, branch `main`.
+- **Build Type: Dockerfile**, using the `Dockerfile` at the root.
+
+**2. Environment tab.** Start in dry run:
+
+```
+TELEGRAM_BOT_TOKEN=<from @BotFather>
+TELEGRAM_ALLOWED_USER_IDS=<your numeric ID>
+PUBLISH_MODE=dry-run
+LOG_FORMAT=json
+OPENAI_API_KEY=<only if ai.enabled is true>
+# Live mode only:
+X_API_KEY=
+X_API_SECRET=
+X_ACCESS_TOKEN=
+X_ACCESS_TOKEN_SECRET=
+```
+
+Get your Telegram ID beforehand by running `pnpm telegram:whoami` on your computer. Inside the deployed container it would compete with the running agent for the bot's updates.
+
+**3. Advanced → Mounts:**
+
+| Type | Name / content | Mount path |
+|---|---|---|
+| Volume | `x-agent-data` | `/app/local/data` |
+| Volume | `x-agent-backups` | `/app/local/backups` |
+| File Mount | your config (start from `config/agent.example.yaml`) | `/app/local/agent.yaml` |
+| File Mount | your profile files | `/app/local/profile/identity.md`, `voice.md`, `facts.md`, `opinions.md`, and optionally `projects.md`, `examples.md`, `rules.md` |
+
+With `ai.enabled: false` in the config, the profile mounts are not needed. The image creates `/app/local/data` and `/app/local/backups` owned by its non-root user, so new volumes are writable. If you use a Bind mount instead, the host directory must be writable by UID 1000.
+
+**4. Keep a single instance and the default update behaviour** (the old container stops before the new one starts). **Don't enable zero-downtime deployments:** two instances at once would compete for the Telegram bot and wait on each other's lease.
+
+**5. Deploy.** The logs should show `Agent ready`, then `Telegram bot is listening`. Then send `/status` to the bot. The image's health check reports whether the agent's 30-second loop is alive.
+
+**Maintenance:** use Dokploy's **Run Command**, which runs inside the container:
+
+| Command | Purpose |
+|---|---|
+| `node scripts/db-backup.ts` | Consistent backup into the `x-agent-backups` volume. |
+| `node scripts/healthcheck.ts` | Liveness, the same check as the health check. |
+| `node scripts/schedule-preview.ts 7` | Upcoming publication times. |
+| `node scripts/x-verify.ts` | Checks the X credentials (one paid request). |
+
+**Off-site backups:** back up the `x-agent-backups` volume (for example with Dokploy's volume backups) rather than copying the live database file.
+
+**Changing the config or profile:** edit the File Mount content in Dokploy, then redeploy. Both are read at startup.
+
 ## systemd (without Docker)
 
 Requires Node.js 24 and pnpm 10.

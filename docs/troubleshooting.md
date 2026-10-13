@@ -13,7 +13,7 @@ Start with the agent's own message: configuration problems are listed with a "Fi
 | `Another instance holds the publication lease … waiting` | Normal for up to 95 s after a crash: the old lease must expire. | Wait. If it ends with "Another agent instance is running", stop that instance. |
 | `X rejected the credentials (401)` (live mode) | Wrong X keys, or tokens generated before "Read and write" was set. | Set the app permissions to Read and write, regenerate the access token and secret, then run `pnpm x:verify`. |
 | `"pretty" needs the pino-pretty dev dependency` | `LOG_FORMAT=pretty` in a production install. | Use `LOG_FORMAT=json`. |
-| `SQLITE_CANTOPEN` / permission denied on `local/` (Docker) | The container user cannot write the mounted directory. | Start with `AGENT_UID=$(id -u) AGENT_GID=$(id -g) docker compose up -d`, or fix the ownership of `local/`. |
+| `SQLITE_CANTOPEN` / permission denied on `local/` (Docker, Dokploy) | The container user (UID 1000 in the image) cannot write the mounted directory. | Start with `AGENT_UID=$(id -u) AGENT_GID=$(id -g) docker compose up -d`, or fix the ownership of `local/`. |
 
 ## Telegram
 
